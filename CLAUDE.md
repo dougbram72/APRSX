@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-APRS-X is a mobile APRS appliance for a Raspberry Pi (target: Pi 3B+ with a 5" DSI touch screen; must scale to larger screens and newer Pis). A Digirig soundcard interface connects it to a transceiver. The full design and phased roadmap are in `docs/DESIGN.md`. Phases 1 (foundation), 2 (receive path, stations heard, live web packet log), 3 (messaging, web chat), 4 (touch-screen head unit), 6 (settings pages, managed Direwolf, map with offline tiles) and 7 (APRS-IS client and iGate) are done, apart from phase 7's offline test. Phase 5 (GPS + beaconing) waits for the GPS hardware.
+APRS-X is a mobile APRS appliance for a Raspberry Pi (target: Pi 3B+ with a 5" DSI touch screen; must scale to larger screens and newer Pis). A Digirig soundcard interface connects it to a transceiver. The full design and phased roadmap are in `docs/DESIGN.md`. Phases 1 (foundation), 2 (receive path, stations heard, live web packet log), 3 (messaging, web chat), 4 (touch-screen head unit), 6 (settings pages, managed Direwolf, map with offline tiles) and 7 (APRS-IS client and iGate) are done. Phase 5 (GPS + beaconing) waits for the GPS hardware.
 
 Progress is tracked in `docs/PROGRESS.md`. Tick off work packages as they are finished, and add design changes and choices to its decision log.
 

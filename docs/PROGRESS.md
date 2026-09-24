@@ -5,7 +5,7 @@ into work packages (WPs). Tick a box when the WP is done and verified. Record an
 departure from DESIGN.md, and any choice DESIGN.md left open, in the decision log at
 the bottom.
 
-**Status (2026-09-24):** phases 1–4 and 6 done; phase 7 (online features) is built and running on the test Pi, with only the offline test (WP7.5) left. Phase 5 (GPS + beaconing) waits for the GPS hardware. Phase 9 (FTM-200D backend) was added 2026-09-24.
+**Status (2026-09-24):** phases 1–4, 6 and 7 done. Phase 5 (GPS + beaconing) waits for the GPS hardware; phase 8 (packaging) can go next. Phase 9 (FTM-200D backend) was added 2026-09-24.
 
 ---
 
@@ -74,14 +74,14 @@ the bottom.
 - [x] WP6.4 Leaflet map of stations heard
 - [x] WP6.5 Offline tile cache (MBTiles or tile directory), OSM when online
 
-## Phase 7: Online features
+## Phase 7: Online features ✅
 
-- [ ] **Phase 7 complete**
+- [x] **Phase 7 complete**
 - [x] WP7.1 APRS-IS client (passcode, filter) with connectivity check
 - [x] WP7.2 RF → IS iGate
 - [x] WP7.3 IS → RF for messages to stations heard locally (standard iGate rules)
 - [x] WP7.4 IS stations on the map, marked as `channel='is'`
-- [ ] WP7.5 Offline test: drop the hotspot, confirm RF messaging, map and head unit keep working
+- [x] WP7.5 Offline test: drop the hotspot, confirm RF messaging, map and head unit keep working
 
 ## Phase 8: Packaging
 
@@ -123,6 +123,8 @@ Newest first. Note the date, the phase/WP, what was decided, and why.
 - **APRS-IS stations are stored with `channel='is'`.** Migration 4 adds `stations.channel`, `rf_heard` and `rf_direct`, so the IS→RF "local" test only uses RF sightings. APRS-IS paths contain non-AX.25 elements (`qAC`, `T2USA`, SSIDs like `-D`), so IS lines are handled as text, not as `ax25.Frame`s. `station_record()` now takes the source and path as strings.
 - **An APRS-IS copy of a station heard on RF in the last 30 min doesn't turn it into an IS station** (channel, path and "direct" stay RF). Found live: our own RF→IS gating, or another iGate's, sends Graywolf's beacon straight back to us over APRS-IS.
 - **Flaky WebSocket tests fixed** (`tests/conftest.py: close_ws`). Starlette's TestClient cancels the app right after sending the disconnect, so the `/ws` handler's cleanup sometimes raised CancelledError (about 50% of runs). The tests now close the socket and let the handler finish first. Real servers wait for the handler (`test_server.py`).
+- **WXBOT through APRS-IS (14:31):** the message went out on RF and APRS-IS, the ack came back over APRS-IS in the same second (first try), and the forecast arrived over APRS-IS 7 s later. Graywolf's RF relay of it 2 s after that was dropped as a duplicate.
+- **WP7.5 offline test (14:32–14:34):** the Pi's default route was removed, with a 10-minute auto-restore timer, and SSH kept working over the LAN. APRS-IS noticed within the 90 s timeout and kept retrying. RF messaging worked: `{0A}` to KF0KBP-1 was acked over RF on the first try. Core, Direwolf and the head unit kept running, and the head unit's IS pill went grey. Cached map tiles were served in about 15 ms, and uncached ones returned 404 in 0.24 s (then about 10 ms during the back-off) instead of hanging. After the route came back, APRS-IS logged in again within 25 s. Known limit: until the timeout, a message's APRS-IS copy goes into the dead TCP socket (and is logged as sent). The RF copy and later retries cover it.
 - **On the test Pi:** APRS-IS is on, logged in as KF0KBP-7 (verified), with filter `r/39.78/-95.56/50` (Graywolf's area, narrowed) and RF→IS gating on. IS→RF is off. It gated Graywolf's 13:32 beacon.
 
 ### 2026-09-24: Web config + map (phase 6)
