@@ -84,7 +84,8 @@ Sheet {
                 }
                 Text {
                     anchors.right: parent.right
-                    text: row.model.heard_direct ? "direct" : (row.model.path || "")
+                    text: row.model.channel === "is" ? "via APRS-IS"
+                          : row.model.heard_direct ? "direct" : (row.model.path || "")
                     color: row.model.heard_direct ? Theme.good : Theme.muted
                     font.pixelSize: Theme.small
                 }

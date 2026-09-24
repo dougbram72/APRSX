@@ -28,7 +28,8 @@ function renderStations() {
         el("td", { "data-ts": s.last_heard }, ago(s.last_heard)),
         el("td", { class: "num" }, distance(s.distance_km)),
         el("td", { class: "num" }, s.bearing == null ? "" : `${s.bearing}°`),
-        el("td", s.heard_direct ? { class: "direct" } : {}, s.heard_direct ? "direct" : s.path),
+        el("td", s.heard_direct ? { class: "direct" } : {},
+          s.channel === "is" ? "APRS-IS" : s.heard_direct ? "direct" : s.path),
         el("td", { class: "comment" }, s.comment ?? ""),
       ),
     ),
@@ -46,8 +47,10 @@ function upsertStation(s) {
 // --- packets ----------------------------------------------------------------
 
 function packetItem(p) {
-  return el("li", p.direction === "tx" ? { class: "tx" } : {},
+  const cls = [p.direction === "tx" ? "tx" : "", p.channel === "is" ? "is" : ""].join(" ").trim();
+  return el("li", cls ? { class: cls } : {},
     el("time", {}, clock(p.ts)),
+    p.channel === "is" ? el("span", { class: "chan" }, "IS") : "",
     p.raw,
     p.format ? el("span", { class: "fmt" }, p.format) : "",
   );

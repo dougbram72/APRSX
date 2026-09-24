@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>APRS-X Settings</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>APRS-X <span id="station" class="call"></span></h1>
+    <nav>
+      <a href="./">Live</a>
+      <a href="chat.html">Messages <span id="nav-unread" class="badge"></span></a>
+      <a href="map.html">Map</a>
+      <a href="settings.html" aria-current="page">Settings</a>
+    </nav>
+    <div class="status">
+      <span id="link" class="pill bad">Connecting…</span>
+      <span id="tnc" class="pill">TNC —</span>
+      <span id="is" class="pill hidden">APRS-IS</span>
+    </div>
+  </header>
+
+  <main class="settings">
+    <form id="login" class="panel hidden" autocomplete="on">
+      <h2>Log in</h2>
+      <p class="hint">A settings password is set. Log in to change settings or send messages.</p>
+      <label>Password <input type="password" id="login-password" autocomplete="current-password" required></label>
+      <button type="submit">Log in</button>
+      <p id="login-error" class="error hidden"></p>
+    </form>
+
+    <form id="settings" autocomplete="off">
+      <fieldset class="panel">
+        <legend>Station</legend>
+        <div class="grid">
+          <label>Callsign <input name="callsign" class="mono upper" maxlength="6" required></label>
+          <label>SSID <input name="ssid" type="number" min="0" max="15"></label>
+          <label class="wide">Path (comma separated) <input name="path" data-type="csv" class="mono upper" placeholder="WIDE1-1,WIDE2-1"></label>
+          <label class="wide">Beacon comment <input name="beacon_comment" maxlength="43"></label>
+          <label class="wide">Status text <input name="status_text" maxlength="62"></label>
+          <label>Fixed latitude <input name="fixed_lat" type="number" step="any" min="-90" max="90" data-type="optnum" placeholder="none"></label>
+          <label>Fixed longitude <input name="fixed_lon" type="number" step="any" min="-180" max="180" data-type="optnum" placeholder="none"></label>
+          <label>Units
+            <select name="units"><option value="imperial">Imperial (mi)</option><option value="metric">Metric (km)</option></select>
+          </label>
+        </div>
+        <p class="hint">The fixed position is used until a GPS fix is available (phase 5).</p>
+        <div class="symbol-row">
+          <span>Symbol</span>
+          <span id="symbol-preview"></span>
+          <select name="symbol_table_kind" data-skip>
+            <option value="/">Primary table</option>
+            <option value="\">Alternate table</option>
+            <option value="overlay">Alternate + overlay</option>
+          </select>
+          <input id="symbol-overlay" class="mono upper" maxlength="1" size="2" placeholder="1" title="Overlay character 0-9 / A-Z">
+        </div>
+        <div id="symbol-grid" class="symbol-grid"></div>
+      </fieldset>
+
+      <fieldset class="panel">
+        <legend>Radio (Direwolf)</legend>
+        <label class="check"><input name="direwolf_managed" type="checkbox"> APRS-X manages Direwolf
+          <span class="hint">Writes direwolf.conf from these settings and restarts Direwolf when they change.</span></label>
+        <div class="grid">
+          <label class="wide">Sound card (ADEVICE) <input name="audio_device" list="audio-devices" class="mono"></label>
+          <label class="wide">PTT <input name="ptt" list="ptt-options" class="mono" placeholder="none (receive only)"></label>
+          <label>KISS host <input name="direwolf_host" class="mono"></label>
+          <label>KISS port <input name="direwolf_kiss_port" type="number" min="1" max="65535"></label>
+        </div>
+        <datalist id="audio-devices"></datalist>
+        <datalist id="ptt-options"></datalist>
+        <label class="check"><input name="digipeater" type="checkbox"> Fill-in digipeater (WIDE1-1)
+          <span class="hint">Direwolf repeats WIDE1-1 packets it hears, once. This transmits from this radio.</span></label>
+        <details>
+          <summary>direwolf.conf APRS-X generates</summary>
+          <pre id="direwolf-conf"></pre>
+        </details>
+        <p id="direwolf-result" class="hint"></p>
+      </fieldset>
+
+      <fieldset class="panel">
+        <legend>Messaging</legend>
+        <div class="grid">
+          <label class="wide">Canned messages (one per line) <textarea name="canned_messages" data-type="lines" rows="5"></textarea></label>
+          <label class="wide">Favorite recipients (one per line) <textarea name="favorites" data-type="lines" rows="5" class="mono upper"></textarea></label>
+        </div>
+      </fieldset>
+
+      <fieldset class="panel">
+        <legend>SmartBeaconing</legend>
+        <p class="hint">Used once GPS beaconing arrives (phase 5).</p>
+        <label class="check"><input name="smartbeacon.enabled" type="checkbox"> Enabled</label>
+        <div class="grid">
+          <label>Fast speed (km/h) <input name="smartbeacon.fast_speed_kmh" type="number" step="any"></label>
+          <label>Fast rate (s) <input name="smartbeacon.fast_rate_s" type="number"></label>
+          <label>Slow speed (km/h) <input name="smartbeacon.slow_speed_kmh" type="number" step="any"></label>
+          <label>Slow rate (s) <input name="smartbeacon.slow_rate_s" type="number"></label>
+          <label>Min turn time (s) <input name="smartbeacon.turn_time_s" type="number"></label>
+          <label>Min turn angle (°) <input name="smartbeacon.turn_angle_deg" type="number" step="any"></label>
+          <label>Turn slope <input name="smartbeacon.turn_slope" type="number" step="any"></label>
+        </div>
+      </fieldset>
+
+      <fieldset class="panel">
+        <legend>APRS-IS</legend>
+        <p id="aprsis-state" class="hint"></p>
+        <label class="check"><input name="aprsis.enabled" type="checkbox"> Connect to APRS-IS when online
+          <span class="hint">Keeps trying in the background; messages and acks also go straight to APRS-IS while logged in.</span></label>
+        <label class="check"><input name="aprsis.igate" type="checkbox"> iGate: pass RF packets to APRS-IS</label>
+        <label class="check"><input name="aprsis.is_to_rf" type="checkbox"> iGate: pass APRS-IS messages to local stations on RF
+          <span class="hint">Only messages for stations heard directly on RF in the last 30 minutes, at most 6 a minute. This transmits from this radio.</span></label>
+        <div class="grid">
+          <label>Server <input name="aprsis.server" class="mono"></label>
+          <label>Port <input name="aprsis.port" type="number"></label>
+          <label>Passcode
+            <span class="inline"><input name="aprsis.passcode" type="number">
+            <button type="button" id="calc-passcode" class="small">Calculate</button></span></label>
+          <label>Filter <input name="aprsis.filter" class="mono"></label>
+        </div>
+        <p class="hint">Passcode -1 logs in receive-only (no gating or sending). Filter "m/50" means 50 km around this station's position.</p>
+      </fieldset>
+
+      <fieldset class="panel">
+        <legend>Map</legend>
+        <label class="check"><input name="tiles_online" type="checkbox"> Download OpenStreetMap tiles when online
+          <span class="hint">Tiles you view are cached for offline use. For areas you haven't viewed, copy a raster .mbtiles file into the tiles folder next to the database.</span></label>
+        <p id="tile-status" class="hint"></p>
+      </fieldset>
+
+      <fieldset class="panel">
+        <legend>Settings password</legend>
+        <p id="password-state" class="hint"></p>
+        <div class="grid">
+          <label>New password <input type="password" id="new-password" autocomplete="new-password"></label>
+          <label>Repeat <input type="password" id="new-password2" autocomplete="new-password"></label>
+        </div>
+        <button type="button" id="remove-password" class="secondary hidden">Remove password</button>
+      </fieldset>
+
+      <div class="save-bar">
+        <button type="submit" id="save">Save</button>
+        <span id="save-result"></span>
+      </div>
+    </form>
+  </main>
+
+  <script src="common.js"></script>
+  <script src="settings.js"></script>
+</body>
+</html>

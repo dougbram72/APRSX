@@ -7,6 +7,7 @@ from aprsx.core.config import Config
 from aprsx.core.messaging import MAX_TRIES, RETRY_DELAYS_S, MessageError, msgno_from_seq
 from aprsx.core.service import Core
 from aprsx.core.store import Store
+from tests.conftest import close_ws
 
 ME = "KF0KBP-7"
 
@@ -295,3 +296,4 @@ def test_api_websocket_message_events(core, sent, client):
         types = [ws.receive_json() for _ in range(3)]
         assert [e["type"] for e in types] == ["packet", "station", "ack"]
         assert types[2]["data"]["state"] == "acked"
+        close_ws(client, ws)

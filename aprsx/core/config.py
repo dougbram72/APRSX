@@ -8,28 +8,32 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 _CALL_RE = re.compile(r"^[A-Z0-9]{3,6}$")
+_DIGI_RE = re.compile(r"^[A-Z0-9]{1,6}(-([0-9]|1[0-5]))?$")
+# Values written into direwolf.conf: one line, no characters Direwolf treats specially.
+_DW_VALUE_RE = re.compile(r"^[A-Za-z0-9_:=,./+-]+( [A-Za-z0-9_:=,./+-]+)*$")
 
 
 class SmartBeacon(BaseModel):
     """SmartBeaconing parameters (HamHUD/Direwolf naming)."""
 
     enabled: bool = True
-    fast_speed_kmh: float = 90
-    fast_rate_s: int = 180
-    slow_speed_kmh: float = 5
-    slow_rate_s: int = 1800
-    turn_time_s: int = 15
-    turn_angle_deg: float = 15
-    turn_slope: float = 255
+    fast_speed_kmh: float = Field(90, gt=0)
+    fast_rate_s: int = Field(180, ge=30)
+    slow_speed_kmh: float = Field(5, gt=0)
+    slow_rate_s: int = Field(1800, ge=60)
+    turn_time_s: int = Field(15, ge=5)
+    turn_angle_deg: float = Field(15, gt=0, le=180)
+    turn_slope: float = Field(255, ge=0)
 
 
 class AprsIs(BaseModel):
     enabled: bool = False
     server: str = "rotate.aprs2.net"
-    port: int = 14580
-    passcode: int = -1
+    port: int = Field(14580, ge=1, le=65535)
+    passcode: int = Field(-1, ge=-1, le=32767)
     filter: str = "m/50"
     igate: bool = False  # gate RF -> IS when online
+    is_to_rf: bool = False  # gate IS messages to stations heard directly on RF (transmits)
 
 
 class Config(BaseModel):
@@ -53,6 +57,18 @@ class Config(BaseModel):
     units: Literal["imperial", "metric"] = "imperial"
 
     digipeater: bool = False  # WIDE1-1 fill-in digi (implemented by Direwolf)
+
+    # Direwolf, when APRS-X manages it (see direwolf.py): the core writes its
+    # config from these settings and restarts it through a systemd user unit.
+    direwolf_managed: bool = False
+    audio_device: str = "plughw:CARD=Device,DEV=0"  # Direwolf ADEVICE
+    ptt: str = ""  # Direwolf PTT arguments, e.g. "/dev/ttyUSB0 RTS" or "CM108"; "" = none
+
+    # Map tiles: fetch from OpenStreetMap (and cache) when online.
+    tiles_online: bool = True
+
+    # Hash of the settings password (see auth.py); "" = no password.
+    admin_password_hash: str = ""
     smartbeacon: SmartBeacon = SmartBeacon()
     aprsis: AprsIs = AprsIs()
 
@@ -70,7 +86,60 @@ class Config(BaseModel):
     @field_validator("favorites")
     @classmethod
     def _upper_favorites(cls, v: list[str]) -> list[str]:
-        return [c.upper().strip() for c in v]
+        out = [c.upper().strip() for c in v if c.strip()]
+        for c in out:
+            if not re.match(r"^[A-Z0-9-]{1,9}$", c):
+                raise ValueError(f"invalid callsign: {c}")
+        return out
+
+    @field_validator("canned_messages")
+    @classmethod
+    def _check_canned(cls, v: list[str]) -> list[str]:
+        out = [t.strip() for t in v if t.strip()]
+        for t in out:
+            if len(t) > 67 or set(t) & set("|~{") or not all(" " <= c <= "~" for c in t):
+                raise ValueError(f"not a valid APRS message: {t!r}")
+        return out
+
+    @field_validator("path")
+    @classmethod
+    def _check_path(cls, v: list[str]) -> list[str]:
+        out = [p.upper().strip() for p in v if p.strip()]
+        if len(out) > 8:
+            raise ValueError("at most 8 digipeaters")
+        for p in out:
+            if not _DIGI_RE.match(p):
+                raise ValueError(f"invalid path element: {p}")
+        return out
+
+    @field_validator("symbol_table")
+    @classmethod
+    def _check_symbol_table(cls, v: str) -> str:
+        if not re.match(r"^[/\\0-9A-Z]$", v):
+            raise ValueError("symbol table must be /, \\ or an overlay 0-9/A-Z")
+        return v
+
+    @field_validator("symbol")
+    @classmethod
+    def _check_symbol(cls, v: str) -> str:
+        if not "!" <= v <= "~":
+            raise ValueError("symbol must be a printable character")
+        return v
+
+    @field_validator("audio_device", "ptt")
+    @classmethod
+    def _check_direwolf_value(cls, v: str) -> str:
+        v = v.strip()
+        if v and not _DW_VALUE_RE.match(v):
+            raise ValueError("letters, digits and _:=,./+- only, on one line")
+        return v
+
+    @field_validator("beacon_comment", "status_text")
+    @classmethod
+    def _check_text(cls, v: str) -> str:
+        if not all(" " <= c <= "~" for c in v):
+            raise ValueError("printable ASCII only")
+        return v
 
     @property
     def station(self) -> str:

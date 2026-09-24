@@ -11,7 +11,8 @@ def record(line, ts=1000.0):
         pkt = aprs.parse(line)
     except aprs.ParseError:
         pkt = None
-    return station_record(frame, pkt, ts)
+    path = [str(d) + ("*" if d.repeated else "") for d in frame.path]
+    return station_record(str(frame.source), path, pkt, ts)
 
 
 def test_distance_bearing_known_values():

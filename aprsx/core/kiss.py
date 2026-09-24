@@ -155,6 +155,14 @@ class KissTcpClient:
                     log.exception("KISS frame handler failed")
         log.warning("KISS connection closed by peer")
 
+    def set_address(self, host: str, port: int) -> None:
+        """Connect somewhere else: drops the current connection, which reconnects."""
+        if (host, port) == (self.host, self.port):
+            return
+        self.host, self.port = host, port
+        if self._writer is not None:
+            self._writer.close()
+
     def write(self, frame: bytes, port: int = 0) -> None:
         """Queue one AX.25 frame without waiting for the socket to drain.
 

@@ -5,7 +5,7 @@ into work packages (WPs). Tick a box when the WP is done and verified. Record an
 departure from DESIGN.md, and any choice DESIGN.md left open, in the decision log at
 the bottom.
 
-**Status (2026-09-24):** phases 1–4 done. Phase 5 (GPS + beaconing) is next. Phase 9 (FTM-200D backend) was added 2026-09-24.
+**Status (2026-09-24):** phases 1–4, 6 and 7 done. Phase 5 (GPS + beaconing) waits for the GPS hardware; phase 8 (packaging) can go next. Phase 9 (FTM-200D backend) was added 2026-09-24.
 
 ---
 
@@ -65,23 +65,23 @@ the bottom.
 - [ ] WP5.5 Tests for SmartBeaconing rate/turn math
 - [ ] WP5.6 On-air check: beacon position seen on aprs.fi
 
-## Phase 6: Web config + map
+## Phase 6: Web config + map ✅
 
-- [ ] **Phase 6 complete**
-- [ ] WP6.1 Settings pages (callsign/SSID, symbol, path, comment, SmartBeacon, canned messages, favorites, APRS-IS, digipeater, audio device)
-- [ ] WP6.2 Generate `direwolf.conf` from settings and restart Direwolf
-- [ ] WP6.3 Fill-in digipeater toggle (Direwolf `DIGIPEAT` rule); check WIDE1-1 repeated once, dupes suppressed
-- [ ] WP6.4 Leaflet map of stations heard
-- [ ] WP6.5 Offline tile cache (MBTiles or tile directory), OSM when online
+- [x] **Phase 6 complete**
+- [x] WP6.1 Settings pages (callsign/SSID, symbol, path, comment, SmartBeacon, canned messages, favorites, APRS-IS, digipeater, audio device)
+- [x] WP6.2 Generate `direwolf.conf` from settings and restart Direwolf
+- [x] WP6.3 Fill-in digipeater toggle (Direwolf `DIGIPEAT` rule); check WIDE1-1 repeated once, dupes suppressed
+- [x] WP6.4 Leaflet map of stations heard
+- [x] WP6.5 Offline tile cache (MBTiles or tile directory), OSM when online
 
-## Phase 7: Online features
+## Phase 7: Online features ✅
 
-- [ ] **Phase 7 complete**
-- [ ] WP7.1 APRS-IS client (passcode, filter) with connectivity check
-- [ ] WP7.2 RF → IS iGate
-- [ ] WP7.3 IS → RF for messages to stations heard locally (standard iGate rules)
-- [ ] WP7.4 IS stations on the map, marked as `channel='is'`
-- [ ] WP7.5 Offline test: drop the hotspot, confirm RF messaging, map and head unit keep working
+- [x] **Phase 7 complete**
+- [x] WP7.1 APRS-IS client (passcode, filter) with connectivity check
+- [x] WP7.2 RF → IS iGate
+- [x] WP7.3 IS → RF for messages to stations heard locally (standard iGate rules)
+- [x] WP7.4 IS stations on the map, marked as `channel='is'`
+- [x] WP7.5 Offline test: drop the hotspot, confirm RF messaging, map and head unit keep working
 
 ## Phase 8: Packaging
 
@@ -112,6 +112,34 @@ serial bridge in the core stands in for Direwolf.
 ## Decision log
 
 Newest first. Note the date, the phase/WP, what was decided, and why.
+
+### 2026-09-24: Online features (phase 7)
+
+- **APRS-IS client** (`aprsis.py`): one login (`user CALL pass N vers APRS-X 0.1 filter …`). It counts as disconnected after 90 s of silence (servers send a `#` keepalive about every 20 s) and reconnects with 5/10/30/60/120 s back-off. It only sends once the `# logresp` says *verified*. Status reports `aprsis_enabled/connected/verified/server` and gate counts; the head unit's IS pill and a new header pill on the web pages use them. The passcode is the standard algorithm (`/api/aprsis/passcode`, with a Calculate button in Settings). The login is repeated when the callsign, server, passcode, filter or fixed position changes.
+- **`m/N` filters become `r/lat/lon/N`** when we know our position. The server only knows our position from packets we've sent to APRS-IS, and we don't beacon yet (phase 5).
+- **RF → IS** (`aprsis.igate`): gates every received packet with `,qAR,<call>` added, except those with TCPIP/TCPXX/NOGATE/RFONLY in the path, third-party (`}`) packets and `?` queries. Info is cut at the first CR/LF/NUL. Digipeated copies are gated once (keyed on source, dest and info, 30 s).
+- **IS → RF** (`aprsis.is_to_rf`, off by default because it transmits): only messages and acks, only to a station heard *directly* on RF in the last 30 min, and not when the sender itself was heard on RF in that time (it can reach the station directly). Not when the path has TCPXX/NOGATE/RFONLY or our call. Sent as `}SRC>DEST,TCPIP,OURCALL*:info` with no digipeater path (the target is in direct range). Limited to 6 per minute and 10 per 5 minutes, deduplicated, and never echoed back to APRS-IS.
+- **Our own packets go to both RF and APRS-IS** when the login is verified (`Core.transmit(..., to_is=True)`); each copy is logged with its channel. Messages and acks to internet stations (WXBOT) therefore work without a local iGate, and a message counts as sent if either path worked. APRS-IS drops the duplicate if another iGate also gates our RF copy.
+- **APRS-IS stations are stored with `channel='is'`.** Migration 4 adds `stations.channel`, `rf_heard` and `rf_direct`, so the IS→RF "local" test only uses RF sightings. APRS-IS paths contain non-AX.25 elements (`qAC`, `T2USA`, SSIDs like `-D`), so IS lines are handled as text, not as `ax25.Frame`s. `station_record()` now takes the source and path as strings.
+- **An APRS-IS copy of a station heard on RF in the last 30 min doesn't turn it into an IS station** (channel, path and "direct" stay RF). Found live: our own RF→IS gating, or another iGate's, sends Graywolf's beacon straight back to us over APRS-IS.
+- **Flaky WebSocket tests fixed** (`tests/conftest.py: close_ws`). Starlette's TestClient cancels the app right after sending the disconnect, so the `/ws` handler's cleanup sometimes raised CancelledError (about 50% of runs). The tests now close the socket and let the handler finish first. Real servers wait for the handler (`test_server.py`).
+- **WXBOT through APRS-IS (14:31):** the message went out on RF and APRS-IS, the ack came back over APRS-IS in the same second (first try), and the forecast arrived over APRS-IS 7 s later. Graywolf's RF relay of it 2 s after that was dropped as a duplicate.
+- **WP7.5 offline test (14:32–14:34):** the Pi's default route was removed, with a 10-minute auto-restore timer, and SSH kept working over the LAN. APRS-IS noticed within the 90 s timeout and kept retrying. RF messaging worked: `{0A}` to KF0KBP-1 was acked over RF on the first try. Core, Direwolf and the head unit kept running, and the head unit's IS pill went grey. Cached map tiles were served in about 15 ms, and uncached ones returned 404 in 0.24 s (then about 10 ms during the back-off) instead of hanging. After the route came back, APRS-IS logged in again within 25 s. Known limit: until the timeout, a message's APRS-IS copy goes into the dead TCP socket (and is logged as sent). The RF copy and later retries cover it.
+- **On the test Pi:** APRS-IS is on, logged in as KF0KBP-7 (verified), with filter `r/39.78/-95.56/50` (Graywolf's area, narrowed) and RF→IS gating on. IS→RF is off. It gated Graywolf's 13:32 beacon.
+
+### 2026-09-24: Web config + map (phase 6)
+
+- **Phase 6 comes before phase 5** because the GPS hardware hasn't arrived. The SmartBeacon and APRS-IS settings can already be edited; they take effect in phases 5 and 7.
+- **Offline tiles (user's choice): browse-cache plus MBTiles.** `tiles.py` serves `/tiles/{z}/{x}/{y}.png` from, in order: `*.mbtiles` packs in `<data dir>/tiles/` (raster only, TMS rows, rescanned when the directory changes), the on-disk cache (fresh for 30 days), OSM (when `tiles_online`), then a stale cached tile. OSM's usage policy forbids bulk downloads, so there's no region pre-fetch from OSM; only viewed tiles are fetched, at most 2 at a time, with an APRS-X User-Agent and a 60 s back-off after a failure. Region packs have to come from a provider that allows bulk use. There's no cache size cap yet.
+- **Leaflet 1.9.4 is bundled** in `web/vendor/leaflet/` (BSD-2, with its LICENSE), because the map must work RF-only. Markers use the APRS symbol sprites. Stations not heard for 2 h are dimmed.
+- **APRS-X manages Direwolf (user's choice)** when `direwolf_managed` is on. `direwolf.py` renders the config from settings (ADEVICE, MYCALL, PTT, KISSPORT, `AGWPORT 0`, and `DIGIPEAT 0 0 ^WIDE1-1$ ^WIDE1-1$` for the fill-in digi; Direwolf's default 30 s DEDUPE drops repeats). It writes `~/.config/aprsx/direwolf.conf` atomically and runs `systemctl --user restart aprsx-direwolf.service` (`deploy/aprsx-direwolf.service`), but only when a Direwolf-relevant field changes. The user's own `ht.conf` is never touched. A restart failure is reported on the settings page and in `status.direwolf_error`; the settings are still saved. Settings that go into direwolf.conf are validated to one line of safe characters, so they can't inject extra lines.
+- **Optional settings password (user's choice).** It's a PBKDF2-SHA256 hash in `Config.admin_password_hash`, never returned by `GET /api/config`. When it's set, `PUT /api/config` and `POST /api/messages` need a session cookie (in memory, 30 days, HttpOnly, SameSite=Strict). Loopback clients (the head unit) are always trusted. Failed logins wait 1 s.
+- **`PUT /api/config` merges into the current settings.** Fields left out keep their values and nested groups merge key by key. An early version replaced the whole config, so a partial request would have reset everything to defaults, callsign included.
+- **Store access is serialised with a lock.** FastAPI runs plain `def` endpoints on worker threads that share the one SQLite connection with the event loop. The map page's parallel requests interleaved on it (`COUNT(*)` came back empty). This was possible since phase 2. SQLite now also runs `synchronous=NORMAL`, which is safe with WAL and uses far fewer fsyncs (kinder to the SD card, and the test suite went from 36 s to 20 s).
+- **Settings page:** fields bind to config keys by `name` (`aprsis.port`), and validation errors come back per field and are shown on that field. It has a symbol picker (primary / alternate / overlay), sound card and PTT suggestions from `/api/system/devices` (ALSA cards as `plughw:CARD=…`, `/dev/serial/by-id` ports with RTS/DTR, CM108), and a preview of the generated direwolf.conf. Checked end to end in Chrome with Playwright.
+- **WP6.3 on-air check (2026-09-24, 13:02):** with the digipeater turned on from the settings page, the Pi's Direwolf heard Graywolf's `KF0KBP-1>APGRWO,WIDE1-1` beacon and transmitted it once as `KF0KBP-1>APGRWO,KF0KBP-7*` (`[0H]`). That confirms the generated `DIGIPEAT` rule, the restart through the unit, and PTT through the managed Direwolf. Graywolf couldn't confirm hearing the repeat, because its receive was barely working at the time (2 decodes and about 150k audio errors in 25 min). Duplicate suppression wasn't exercised: only one copy arrived. It relies on Direwolf's standard 30 s DEDUPE. The digipeater was switched off again after the test.
+- **Receive through the managed Direwolf** was confirmed by Graywolf's beacons at 11:02, 11:32, 12:02, 12:32 and 13:02.
+- **On the test Pi:** Direwolf now runs as the enabled user unit `aprsx-direwolf.service`, with managed mode on (same ADEVICE and CP2102N RTS PTT as `ht.conf`), instead of the transient `aprsx-direwolf-test`.
 
 ### 2026-09-24: Head unit (phase 4)
 

@@ -6,6 +6,7 @@ from aprsx.core.api import create_app
 from aprsx.core.config import Config
 from aprsx.core.service import Core
 from aprsx.core.store import Store
+from tests.conftest import close_ws
 
 
 @pytest.fixture
@@ -68,6 +69,7 @@ def test_websocket_pushes_events(core, client):
         station = ws.receive_json()
         assert station["type"] == "station"
         assert station["data"]["name"] == "K1ABC"
+        close_ws(client, ws)
 
 
 def test_web_page_served(client):

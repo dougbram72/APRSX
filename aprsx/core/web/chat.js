@@ -119,6 +119,10 @@ async function send(ev) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ to, text }),
   });
+  if (r.status === 401) {
+    showError("A settings password is set: log in on the Settings page to send messages.");
+    return;
+  }
   if (!r.ok) {
     showError((await r.json().catch(() => ({}))).detail ?? `Send failed (${r.status})`);
     return;

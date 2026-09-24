@@ -56,6 +56,11 @@ function setPill(id, text, cls) {
 function renderHeader(s) {
   $("#station").textContent = s.station;
   setPill("#tnc", s.kiss_connected ? "TNC connected" : "TNC offline", s.kiss_connected ? "good" : "bad");
+  const is = $("#is");
+  if (is) {
+    is.classList.toggle("hidden", !s.aprsis_enabled);
+    setPill("#is", s.aprsis_verified ? "APRS-IS" : "APRS-IS offline", s.aprsis_verified ? "good" : "bad");
+  }
   const unread = $("#nav-unread");
   if (unread) unread.textContent = s.unread ? String(s.unread) : "";
 }

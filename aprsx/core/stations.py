@@ -5,7 +5,6 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from .ax25 import Frame
 
 EARTH_RADIUS_KM = 6371.0088
 
@@ -21,19 +20,23 @@ def distance_bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> tupl
     return dist, (math.degrees(math.atan2(y, x)) + 360) % 360
 
 
-def station_record(frame: Frame, pkt: dict[str, Any] | None, ts: float) -> dict[str, Any]:
+def station_record(source: str, path: list[str], pkt: dict[str, Any] | None, ts: float,
+                   channel: str = "rf") -> dict[str, Any]:
     """Build the upsert_station() input for one received packet.
 
-    Objects and items are tracked under their own name, not the sender's.
+    ``path`` is the digipeater path as TNC2 text elements ("WIDE1*"). Objects
+    and items are tracked under their own name, not the sender's. Only an RF
+    packet that no digipeater repeated counts as heard directly.
     """
     pkt = pkt or {}
     record: dict[str, Any] = {
-        "name": pkt.get("object_name", "").strip() or str(frame.source),
+        "name": pkt.get("object_name", "").strip() or source,
         "is_object": "object_name" in pkt,
         "ts": ts,
         "last_format": pkt.get("format"),
-        "heard_direct": not any(d.repeated for d in frame.path),
-        "path": ",".join(str(d) + ("*" if d.repeated else "") for d in frame.path),
+        "heard_direct": channel == "rf" and not any(p.endswith("*") for p in path),
+        "path": ",".join(path),
+        "channel": channel,
     }
     if "latitude" in pkt and "longitude" in pkt:
         record.update(
