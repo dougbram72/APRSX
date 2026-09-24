@@ -5,7 +5,7 @@ into work packages (WPs). Tick a box when the WP is done and verified. Record an
 departure from DESIGN.md, and any choice DESIGN.md left open, in the decision log at
 the bottom.
 
-**Status (2026-09-24):** phases 1–3 done. Phase 4 (head unit) is next. Phase 9 (FTM-200D backend) was added 2026-09-24.
+**Status (2026-09-24):** phases 1–4 done. Phase 5 (GPS + beaconing) is next. Phase 9 (FTM-200D backend) was added 2026-09-24.
 
 ---
 
@@ -45,15 +45,15 @@ the bottom.
 - [x] WP3.8 Tests for the messaging state machine (retries, acks, dupes)
 - [x] WP3.9 On-air check: message to/from another station or aprs.fi, ack seen
 
-## Phase 4: Head unit v1
+## Phase 4: Head unit v1 ✅
 
-- [ ] **Phase 4 complete**
-- [ ] WP4.1 PySide6/QML app skeleton, API/WebSocket client to aprsx-core
-- [ ] WP4.2 Message carousel with ◀ ▶, unread count, new messages to the front
-- [ ] WP4.3 Button bar: Beacon, Reply, Quick Msg (canned + favorites), Keyboard (Qt virtual keyboard), Stations
-- [ ] WP4.4 Status strip: GPS fix, TX/RX, APRS-IS online, last beacon
-- [ ] WP4.5 Resolution-independent layout (800×480 upward)
-- [ ] WP4.6 Full-screen on the 5" DSI through eglfs on the Pi; desktop run through xcb
+- [x] **Phase 4 complete**
+- [x] WP4.1 PySide6/QML app skeleton, API/WebSocket client to aprsx-core
+- [x] WP4.2 Message carousel with ◀ ▶, unread count, new messages to the front
+- [x] WP4.3 Button bar: Beacon, Reply, Quick Msg (canned + favorites), Keyboard (Qt virtual keyboard), Stations
+- [x] WP4.4 Status strip: GPS fix, TX/RX, APRS-IS online, last beacon
+- [x] WP4.5 Resolution-independent layout (800×480 upward)
+- [x] WP4.6 Full-screen on the 5" DSI through eglfs on the Pi; desktop run through xcb
 
 ## Phase 5: GPS + beaconing
 
@@ -112,6 +112,17 @@ serial bridge in the core stands in for Direwolf.
 ## Decision log
 
 Newest first. Note the date, the phase/WP, what was decided, and why.
+
+### 2026-09-24: Head unit (phase 4)
+
+- **The head unit runs on the Pi's system Python with Debian's PySide6 6.8.2** (`deploy/head-apt-packages.txt`), not in the core's venv. Debian's Qt uses the Pi's Mesa stack and includes the virtual keyboard; the pip wheels would be much bigger. The head imports nothing from `aprsx.core`, so it needs only PySide6. Run it with `PYTHONPATH=~/aprsx python3 -m aprsx.head --fullscreen`. Keep QML to Qt 6.8 features (the dev machine has 6.11).
+- **Networking uses Qt only** (QNetworkAccessManager + QWebSocket on Qt's event loop), with no asyncio in the UI process. After every (re)connect it reloads status, config, the last 200 messages and the stations over REST, then follows `/ws`.
+- **WP4.6: on this Pi it runs as a full-screen Wayland window under labwc**, because the desktop image's compositor owns the DSI display, so eglfs can't take it. eglfs is for a Lite/kiosk image and moves to phase 8 (boot and install setup). Qt's `-platform` options pass straight through.
+- **Virtual keyboard:** Qt 6.8's Wayland plugin needs `QT_IM_MODULES` (plural) as well as `QT_IM_MODULE`; the key images are SVG, so `qt6-svg-plugins` is required. It's pinned to en_US with one layout (APRS text is ASCII). Focusing a field from code doesn't raise the keyboard, so Compose calls `Qt.inputMethod.show()`. Qt's `offscreen` platform loads no input method, so the keyboard can only be checked on a real display.
+- **Scaling:** every size is `Theme.u` × a base value, where `u = min(w/800, h/480)`. Checked at 800×480 (on the DSI) and 1280×800.
+- **Carousel:** newest first, and a new incoming message jumps to the front. A message counts as read after 1.5 s on screen while the window is active; that marks the whole conversation read (`/api/messages/read` is per peer). Beacon stays disabled until the core reports `can_beacon` (phase 5). GPS/IS/last-beacon status pills are placeholders for phases 5 and 7.
+- **Multi-part replies are joined into one card** (`head/grouping.py`, display only). Bots like WXBOT cut long replies at 67 characters, often mid-word, and send the parts a few seconds apart. An incoming part joins the previous one from the same peer if that one was ≥55 characters and ≤60 s older, with no message to or from that peer in between. It joins with no space if the previous part was exactly 67 characters (a mid-word cut), otherwise with a space. The core still stores and acks each part.
+- **Screenshots for review:** on the Pi use `grim` under the labwc session (`WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000`). On the dev machine render offscreen with `QQuickWindow.grabWindow()` (import `PySide6.QtQuick` first, or the root object comes back as a plain `QWindow`).
 
 ### 2026-09-24: Messaging (phase 3)
 
