@@ -55,16 +55,26 @@ def _addressee(call: str) -> str:
     return call.ljust(9)
 
 
-def message(addressee: str, text: str, msg_id: str | None = None) -> str:
+def message(
+    addressee: str, text: str, msg_id: str | None = None, reply_ack: str | None = None
+) -> str:
+    """Message info field. reply_ack (even "") uses the reply-ack form {MM}AA."""
     if len(text) > MAX_MESSAGE_TEXT:
         raise EncodeError(f"message text longer than {MAX_MESSAGE_TEXT} characters")
     if bad := _MSG_FORBIDDEN & set(text):
         raise EncodeError(f"message text contains forbidden characters: {''.join(bad)}")
+    if not all(" " <= c <= "~" for c in text):
+        raise EncodeError("message text must be printable ASCII")
     out = f":{_addressee(addressee)}:{text}"
     if msg_id is not None:
         if not 1 <= len(msg_id) <= 5 or not msg_id.isalnum():
             raise EncodeError(f"invalid message id: {msg_id!r}")
         out += "{" + msg_id
+        if reply_ack is not None:
+            ack_ok = reply_ack == "" or (len(reply_ack) == 2 and reply_ack.isalnum())
+            if len(msg_id) != 2 or not ack_ok:
+                raise EncodeError("reply-acks need two-character message ids")
+            out += "}" + reply_ack
     return out
 
 
