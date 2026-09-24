@@ -5,7 +5,7 @@ into work packages (WPs). Tick a box when the WP is done and verified. Record an
 departure from DESIGN.md, and any choice DESIGN.md left open, in the decision log at
 the bottom.
 
-**Status (2026-09-24):** phases 1–4 done. Phase 5 (GPS + beaconing) is next. Phase 9 (FTM-200D backend) was added 2026-09-24.
+**Status (2026-09-24):** phases 1–4 and 6 done. Phase 5 (GPS + beaconing) waits for the GPS hardware; phase 7 (online features) can go next. Phase 9 (FTM-200D backend) was added 2026-09-24.
 
 ---
 
@@ -65,14 +65,14 @@ the bottom.
 - [ ] WP5.5 Tests for SmartBeaconing rate/turn math
 - [ ] WP5.6 On-air check: beacon position seen on aprs.fi
 
-## Phase 6: Web config + map
+## Phase 6: Web config + map ✅
 
-- [ ] **Phase 6 complete**
-- [ ] WP6.1 Settings pages (callsign/SSID, symbol, path, comment, SmartBeacon, canned messages, favorites, APRS-IS, digipeater, audio device)
-- [ ] WP6.2 Generate `direwolf.conf` from settings and restart Direwolf
-- [ ] WP6.3 Fill-in digipeater toggle (Direwolf `DIGIPEAT` rule); check WIDE1-1 repeated once, dupes suppressed
-- [ ] WP6.4 Leaflet map of stations heard
-- [ ] WP6.5 Offline tile cache (MBTiles or tile directory), OSM when online
+- [x] **Phase 6 complete**
+- [x] WP6.1 Settings pages (callsign/SSID, symbol, path, comment, SmartBeacon, canned messages, favorites, APRS-IS, digipeater, audio device)
+- [x] WP6.2 Generate `direwolf.conf` from settings and restart Direwolf
+- [x] WP6.3 Fill-in digipeater toggle (Direwolf `DIGIPEAT` rule); check WIDE1-1 repeated once, dupes suppressed
+- [x] WP6.4 Leaflet map of stations heard
+- [x] WP6.5 Offline tile cache (MBTiles or tile directory), OSM when online
 
 ## Phase 7: Online features
 
@@ -112,6 +112,20 @@ serial bridge in the core stands in for Direwolf.
 ## Decision log
 
 Newest first. Note the date, the phase/WP, what was decided, and why.
+
+### 2026-09-24: Web config + map (phase 6)
+
+- **Phase 6 comes before phase 5** because the GPS hardware hasn't arrived. The SmartBeacon and APRS-IS settings can already be edited; they take effect in phases 5 and 7.
+- **Offline tiles (user's choice): browse-cache plus MBTiles.** `tiles.py` serves `/tiles/{z}/{x}/{y}.png` from, in order: `*.mbtiles` packs in `<data dir>/tiles/` (raster only, TMS rows, rescanned when the directory changes), the on-disk cache (fresh for 30 days), OSM (when `tiles_online`), then a stale cached tile. OSM's usage policy forbids bulk downloads, so there's no region pre-fetch from OSM; only viewed tiles are fetched, at most 2 at a time, with an APRS-X User-Agent and a 60 s back-off after a failure. Region packs have to come from a provider that allows bulk use. There's no cache size cap yet.
+- **Leaflet 1.9.4 is bundled** in `web/vendor/leaflet/` (BSD-2, with its LICENSE), because the map must work RF-only. Markers use the APRS symbol sprites. Stations not heard for 2 h are dimmed.
+- **APRS-X manages Direwolf (user's choice)** when `direwolf_managed` is on. `direwolf.py` renders the config from settings (ADEVICE, MYCALL, PTT, KISSPORT, `AGWPORT 0`, and `DIGIPEAT 0 0 ^WIDE1-1$ ^WIDE1-1$` for the fill-in digi; Direwolf's default 30 s DEDUPE drops repeats). It writes `~/.config/aprsx/direwolf.conf` atomically and runs `systemctl --user restart aprsx-direwolf.service` (`deploy/aprsx-direwolf.service`), but only when a Direwolf-relevant field changes. The user's own `ht.conf` is never touched. A restart failure is reported on the settings page and in `status.direwolf_error`; the settings are still saved. Settings that go into direwolf.conf are validated to one line of safe characters, so they can't inject extra lines.
+- **Optional settings password (user's choice).** It's a PBKDF2-SHA256 hash in `Config.admin_password_hash`, never returned by `GET /api/config`. When it's set, `PUT /api/config` and `POST /api/messages` need a session cookie (in memory, 30 days, HttpOnly, SameSite=Strict). Loopback clients (the head unit) are always trusted. Failed logins wait 1 s.
+- **`PUT /api/config` merges into the current settings.** Fields left out keep their values and nested groups merge key by key. An early version replaced the whole config, so a partial request would have reset everything to defaults, callsign included.
+- **Store access is serialised with a lock.** FastAPI runs plain `def` endpoints on worker threads that share the one SQLite connection with the event loop. The map page's parallel requests interleaved on it (`COUNT(*)` came back empty). This was possible since phase 2. SQLite now also runs `synchronous=NORMAL`, which is safe with WAL and uses far fewer fsyncs (kinder to the SD card, and the test suite went from 36 s to 20 s).
+- **Settings page:** fields bind to config keys by `name` (`aprsis.port`), and validation errors come back per field and are shown on that field. It has a symbol picker (primary / alternate / overlay), sound card and PTT suggestions from `/api/system/devices` (ALSA cards as `plughw:CARD=…`, `/dev/serial/by-id` ports with RTS/DTR, CM108), and a preview of the generated direwolf.conf. Checked end to end in Chrome with Playwright.
+- **WP6.3 on-air check (2026-09-24, 13:02):** with the digipeater turned on from the settings page, the Pi's Direwolf heard Graywolf's `KF0KBP-1>APGRWO,WIDE1-1` beacon and transmitted it once as `KF0KBP-1>APGRWO,KF0KBP-7*` (`[0H]`). That confirms the generated `DIGIPEAT` rule, the restart through the unit, and PTT through the managed Direwolf. Graywolf couldn't confirm hearing the repeat, because its receive was barely working at the time (2 decodes and about 150k audio errors in 25 min). Duplicate suppression wasn't exercised: only one copy arrived. It relies on Direwolf's standard 30 s DEDUPE. The digipeater was switched off again after the test.
+- **Receive through the managed Direwolf** was confirmed by Graywolf's beacons at 11:02, 11:32, 12:02, 12:32 and 13:02.
+- **On the test Pi:** Direwolf now runs as the enabled user unit `aprsx-direwolf.service`, with managed mode on (same ADEVICE and CP2102N RTS PTT as `ht.conf`), instead of the transient `aprsx-direwolf-test`.
 
 ### 2026-09-24: Head unit (phase 4)
 

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-APRS-X is a mobile APRS appliance for a Raspberry Pi (target: Pi 3B+ with a 5" DSI touch screen; must scale to larger screens and newer Pis). A Digirig soundcard interface connects it to a transceiver. The full design and phased roadmap are in `docs/DESIGN.md`. Phases 1 (foundation), 2 (receive path, stations heard, live web packet log), 3 (messaging, web chat) and 4 (touch-screen head unit) are done; phase 5 (GPS + beaconing) is next.
+APRS-X is a mobile APRS appliance for a Raspberry Pi (target: Pi 3B+ with a 5" DSI touch screen; must scale to larger screens and newer Pis). A Digirig soundcard interface connects it to a transceiver. The full design and phased roadmap are in `docs/DESIGN.md`. Phases 1 (foundation), 2 (receive path, stations heard, live web packet log), 3 (messaging, web chat), 4 (touch-screen head unit) and 6 (settings pages, managed Direwolf, map with offline tiles) are done. Phase 5 (GPS + beaconing) waits for the GPS hardware.
 
 Progress is tracked in `docs/PROGRESS.md`. Tick off work packages as they are finished, and add design changes and choices to its decision log.
 
@@ -46,7 +46,8 @@ GPS HAT ─ /dev/serial0 ─ gpsd:2947 ─────────┤
 - Distances use `Core.my_position()`, which is only `fixed_lat/lon` until the GPS work in phase 5.
 - aprslib parse results use its own keys, including the misspelled `addresse` for message recipients and `response` = `ack`/`rej`.
 - `TOCALL` is `APZAPX` (experimental APZ range) until we register one.
-- Config is a single pydantic `Config` model (`aprsx/core/config.py`), stored as JSON under the `config` key in the SQLite `settings` table. To add a setting, add a field with a default; old stored configs still load.
+- Config is a single pydantic `Config` model (`aprsx/core/config.py`), stored as JSON under the `config` key in the SQLite `settings` table. To add a setting, add a field with a default; old stored configs still load. Apply changes through `Core.update_config()` (reconnects KISS, rewrites and restarts Direwolf when managed). `PUT /api/config` merges; add a field to the settings page by giving an input `name="<key>"`.
+- `Store` methods are serialised with a lock: sync FastAPI endpoints run on worker threads sharing the one connection. Decorate new `Store` methods with `@_locked`.
 - The SQLite schema is versioned through `PRAGMA user_version`. Add new tables by **appending** to `_MIGRATIONS` in `aprsx/core/store.py`; never edit existing entries.
 
 ## Target Pi (test unit)
@@ -55,7 +56,8 @@ GPS HAT ─ /dev/serial0 ─ gpsd:2947 ─────────┤
 - The project is copied to `~/aprsx`, with its own venv at `~/aprsx/.venv` (plain venv + pip, no uv on the Pi). Sync by piping a tarball over ssh.
 - Station: KF0KBP-7, Baofeng UV-5R through a Digirig. The working Direwolf config is `~/.config/direwolf/ht.conf` (ALSA card `Device`, PTT on the CP2102 `/dev/serial/by-id/...` path, RTS). It has no beacons or digipeating set up, so running it only receives.
 - The head unit runs on the system python3 with Debian's PySide6 (`deploy/head-apt-packages.txt`), not the venv: `systemd-run --user --unit=aprsx-head-test -E WAYLAND_DISPLAY=wayland-0 -E XDG_RUNTIME_DIR=/run/user/1000 -E QT_QPA_PLATFORM=wayland -E PYTHONPATH=/home/pi/aprsx /usr/bin/python3 -m aprsx.head --fullscreen`. Screenshot the DSI screen with `grim` using the same env.
-- Test runs: `systemd-run --user --unit=aprsx-direwolf-test ...` and `--unit=aprsx-core-test ~/aprsx/.venv/bin/aprsx-core` (transient, gone after reboot). The DB is `~/.local/share/aprsx/aprsx.db`. The user journal isn't persistent, and Direwolf block-buffers when it isn't on a TTY, so run it with `stdbuf -oL` and `-p StandardOutput=truncate:/tmp/direwolf.log` to see its output.
+- Direwolf runs as the enabled user unit `aprsx-direwolf.service` (`deploy/`), with its config written by the core to `~/.config/aprsx/direwolf.conf` (managed mode). Don't start other Direwolf instances; they'd fight over the Digirig.
+- The core still runs as a transient unit: `systemd-run --user --unit=aprsx-core-test ~/aprsx/.venv/bin/aprsx-core` (gone after reboot until phase 8). The DB is `~/.local/share/aprsx/aprsx.db`. The user journal has no storage on this Pi, so read user-unit output from the system journal: `sudo journalctl _SYSTEMD_USER_UNIT=aprsx-direwolf.service` (the unit uses `stdbuf -oL`, since Direwolf block-buffers off a TTY). It's lost on reboot.
 - Graywolf, YAAC and Java were removed from the Pi (2026-09-23). Direwolf is the only APRS package installed; don't install other APRS software.
 - PipeWire/WirePlumber would otherwise grab the Digirig. `deploy/wireplumber-disable-digirig.conf` is installed at `~/.config/wireplumber/wireplumber.conf.d/51-disable-digirig.conf` to prevent that.
 - The user's FTM-200 receive-only setup stays installed: `~/.local/bin/ftm200_aprs_bridge.py`, `aprs-configure-ftm200`, `aprs-mode-rx`/`aprs-mode-trx`, the user units `ftm200-aprs-bridge.service` and `direwolf-ht.service` (both disabled), and their desktop launchers. `~/install-aprs-pi-fresh.sh` is the older installer that created them (it also installs YAAC). Treat these as the user's own; don't change or remove them.

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import functools
 import sqlite3
+import threading
 from pathlib import Path
 
 from .config import Config
@@ -65,13 +67,28 @@ _MIGRATIONS: list[str] = [
 ]
 
 
+def _locked(method):
+    """One connection is shared by the event loop and FastAPI's worker threads
+    (plain ``def`` endpoints); interleaved use corrupts results, so serialize."""
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return wrapper
+
+
 class Store:
     def __init__(self, path: str | Path) -> None:
+        self._lock = threading.RLock()
         self.conn = sqlite3.connect(path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
+        # Safe with WAL (no corruption on power loss, at most the last commits
+        # are lost) and far fewer fsyncs, which spares the Pi's SD card.
+        self.conn.execute("PRAGMA synchronous=NORMAL")
         self._migrate()
 
+    @_locked
     def _migrate(self) -> None:
         version = self.conn.execute("PRAGMA user_version").fetchone()[0]
         for i, sql in enumerate(_MIGRATIONS[version:], start=version + 1):
@@ -79,13 +96,16 @@ class Store:
                 self.conn.executescript(sql)
                 self.conn.execute(f"PRAGMA user_version = {i}")
 
+    @_locked
     def close(self) -> None:
         self.conn.close()
 
+    @_locked
     def load_config(self) -> Config:
         row = self.conn.execute("SELECT value FROM settings WHERE key = 'config'").fetchone()
         return Config.model_validate_json(row["value"]) if row else Config()
 
+    @_locked
     def save_config(self, config: Config) -> None:
         with self.conn:
             self.conn.execute(
@@ -94,6 +114,7 @@ class Store:
                 (config.model_dump_json(),),
             )
 
+    @_locked
     def next_seq(self, key: str) -> int:
         """Increment and return a persistent counter kept in the settings table."""
         with self.conn:
@@ -107,6 +128,7 @@ class Store:
 
     # --- packets -----------------------------------------------------------
 
+    @_locked
     def add_packet(
         self,
         ts: float,
@@ -125,6 +147,7 @@ class Store:
         return {"id": cur.lastrowid, "ts": ts, "source": source, "raw": raw,
                 "format": format, "direction": direction, "channel": channel}
 
+    @_locked
     def recent_packets(self, limit: int = 100, before_id: int | None = None) -> list[dict]:
         """Newest first. Page backwards with before_id."""
         rows = self.conn.execute(
@@ -133,6 +156,7 @@ class Store:
         )
         return [dict(r) for r in rows]
 
+    @_locked
     def prune_packets(self, keep: int) -> int:
         with self.conn:
             cur = self.conn.execute(
@@ -144,6 +168,7 @@ class Store:
 
     # --- stations ----------------------------------------------------------
 
+    @_locked
     def upsert_station(self, st: dict) -> dict:
         """Record a packet heard from a station.
 
@@ -187,10 +212,12 @@ class Store:
             )
         return self.get_station(st["name"])
 
+    @_locked
     def get_station(self, name: str) -> dict | None:
         row = self.conn.execute("SELECT * FROM stations WHERE name = ?", (name,)).fetchone()
         return dict(row) if row else None
 
+    @_locked
     def list_stations(self, limit: int = 500) -> list[dict]:
         rows = self.conn.execute(
             "SELECT * FROM stations ORDER BY last_heard DESC LIMIT ?", (limit,)
@@ -202,6 +229,7 @@ class Store:
     _MESSAGE_FIELDS = ("ts", "direction", "peer", "text", "msgno", "state", "tries",
                        "next_try", "acked_ts", "read", "channel")
 
+    @_locked
     def add_message(self, **fields) -> dict:
         cols = [k for k in fields if k in self._MESSAGE_FIELDS]
         with self.conn:
@@ -212,6 +240,7 @@ class Store:
             )
         return self.get_message(cur.lastrowid)
 
+    @_locked
     def update_message(self, id: int, **fields) -> dict:
         cols = [k for k in fields if k in self._MESSAGE_FIELDS]
         with self.conn:
@@ -221,10 +250,12 @@ class Store:
             )
         return self.get_message(id)
 
+    @_locked
     def get_message(self, id: int) -> dict | None:
         row = self.conn.execute("SELECT * FROM messages WHERE id = ?", (id,)).fetchone()
         return dict(row) if row else None
 
+    @_locked
     def list_messages(
         self, peer: str | None = None, limit: int = 100, before_id: int | None = None
     ) -> list[dict]:
@@ -236,6 +267,7 @@ class Store:
         )
         return [dict(r) for r in rows]
 
+    @_locked
     def due_messages(self, now: float) -> list[dict]:
         rows = self.conn.execute(
             "SELECT * FROM messages WHERE state = 'pending' AND next_try <= ? ORDER BY id",
@@ -243,6 +275,7 @@ class Store:
         )
         return [dict(r) for r in rows]
 
+    @_locked
     def find_pending(self, peer: str, msgno: str) -> dict | None:
         row = self.conn.execute(
             "SELECT * FROM messages WHERE direction = 'out' AND state = 'pending' "
@@ -251,6 +284,7 @@ class Store:
         ).fetchone()
         return dict(row) if row else None
 
+    @_locked
     def find_duplicate(self, peer: str, msgno: str | None, text: str, since: float) -> bool:
         row = self.conn.execute(
             "SELECT 1 FROM messages WHERE direction = 'in' AND peer = ? AND msgno IS ? "
@@ -259,6 +293,7 @@ class Store:
         ).fetchone()
         return row is not None
 
+    @_locked
     def conversations(self) -> list[dict]:
         """One row per peer: last message and unread count, most recent first."""
         rows = self.conn.execute(
@@ -273,11 +308,13 @@ class Store:
         )
         return [dict(r) for r in rows]
 
+    @_locked
     def unread_count(self) -> int:
         return self.conn.execute(
             "SELECT COUNT(*) FROM messages WHERE direction = 'in' AND read = 0"
         ).fetchone()[0]
 
+    @_locked
     def mark_read(self, peer: str) -> int:
         with self.conn:
             cur = self.conn.execute(

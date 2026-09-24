@@ -28,3 +28,28 @@ def test_config_persists_across_reopen(tmp_path):
 def test_callsign_validation(call):
     with pytest.raises(ValidationError):
         Config(callsign=call)
+
+
+def test_store_is_safe_across_threads(tmp_path):
+    """FastAPI runs sync endpoints on worker threads sharing the one connection."""
+    import threading
+
+    store = Store(tmp_path / "t.db")
+    errors = []
+
+    def hammer():
+        try:
+            for i in range(100):
+                store.add_packet(float(i), f"K1ABC>APRS:>{i}")
+                assert store.unread_count() == 0
+                store.recent_packets(5)
+        except Exception as e:  # pragma: no cover - only on failure
+            errors.append(e)
+
+    threads = [threading.Thread(target=hammer) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+    assert len(store.recent_packets(5000)) == 600

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>APRS-X Map</title>
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="map-page">
+  <header>
+    <h1>APRS-X <span id="station" class="call"></span></h1>
+    <nav>
+      <a href="./">Live</a>
+      <a href="chat.html">Messages <span id="nav-unread" class="badge"></span></a>
+      <a href="map.html" aria-current="page">Map</a>
+      <a href="settings.html">Settings</a>
+    </nav>
+    <div class="status">
+      <span id="link" class="pill bad">Connecting…</span>
+      <span id="tnc" class="pill">TNC —</span>
+    </div>
+  </header>
+  <div id="map"></div>
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="common.js"></script>
+  <script src="map.js"></script>
+</body>
+</html>

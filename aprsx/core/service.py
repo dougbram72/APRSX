@@ -9,6 +9,8 @@ from collections.abc import Callable
 from typing import Any
 
 from . import aprs, ax25
+from .config import Config
+from .direwolf import ApplyResult, DirewolfManager, needs_restart
 from .events import EventBus
 from .kiss import KissTcpClient
 from .messaging import Messenger
@@ -23,9 +25,12 @@ MESSAGE_TICK_S = 1
 
 
 class Core:
-    def __init__(self, store: Store, clock: Callable[[], float] = time.time) -> None:
+    def __init__(self, store: Store, clock: Callable[[], float] = time.time,
+                 direwolf: DirewolfManager | None = None) -> None:
         self.store = store
         self.clock = clock
+        self.direwolf = direwolf
+        self.direwolf_error: str | None = None
         self.config = store.load_config()
         self.bus = EventBus()
         self.started = time.time()
@@ -43,6 +48,8 @@ class Core:
     # --- lifecycle ---------------------------------------------------------
 
     async def start(self) -> None:
+        if self.config.direwolf_managed and self.direwolf and not self.direwolf.conf_path.exists():
+            self.direwolf.write(self.config)  # first boot: the unit needs a config
         self._tasks = [
             asyncio.create_task(self.kiss.run(), name="kiss"),
             asyncio.create_task(self._prune_loop(), name="prune"),
@@ -82,6 +89,8 @@ class Core:
             "kiss_connected": self.kiss.connected,
             "rx_count": self.rx_count,
             "tx_count": self.tx_count,
+            "direwolf_managed": self.config.direwolf_managed,
+            "direwolf_error": self.direwolf_error,
             "unread": self.store.unread_count(),
             "uptime_s": round(time.time() - self.started),
             "position": dict(zip(("lat", "lon"), self.my_position())),
@@ -90,6 +99,19 @@ class Core:
     def stations(self) -> list[dict[str, Any]]:
         lat, lon = self.my_position()
         return [with_distance(s, lat, lon) for s in self.store.list_stations()]
+
+    async def update_config(self, new: Config) -> ApplyResult | None:
+        """Save and apply new settings. Returns the Direwolf result if it was touched."""
+        old = self.config
+        self.store.save_config(new)
+        self.config = new
+        self.kiss.set_address(new.direwolf_host, new.direwolf_kiss_port)
+        result = None
+        if new.direwolf_managed and self.direwolf and needs_restart(old, new):
+            result = await self.direwolf.apply(new)
+            self.direwolf_error = result.error
+        self.bus.publish("status", self.status())
+        return result
 
     def _kiss_state(self, connected: bool) -> None:
         self.bus.publish("status", self.status())
