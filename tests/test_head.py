@@ -254,3 +254,18 @@ def test_client_joins_parts_live_without_moving_carousel(qapp):
     assert c.unread == 3
     c.handle_event("read", {"peer": "WXBOT", "unread": 1})
     assert c.messages.get(0)["read"] == 1
+
+
+def test_client_symbols_map(qapp):
+    c = CoreClient("http://127.0.0.1:9")
+    changed = []
+    c.symbolsChanged.connect(lambda: changed.append(1))
+    c._reset_stations([{"name": "KF0KBP-1", "last_heard": 1, "symbol_table": "/", "symbol": "-"},
+                       {"name": "NOPOS", "last_heard": 2, "symbol_table": None, "symbol": None}])
+    assert c.symbols == {"KF0KBP-1": "/-"}
+    c.handle_event("station", {"name": "N0DIG-2", "last_heard": 3,
+                               "symbol_table": "1", "symbol": "#"})
+    assert c.symbols["N0DIG-2"] == "1#"
+    c.handle_event("station", {"name": "N0DIG-2", "last_heard": 4,
+                               "symbol_table": "1", "symbol": "#"})
+    assert len(changed) == 2  # unchanged symbol doesn't re-notify

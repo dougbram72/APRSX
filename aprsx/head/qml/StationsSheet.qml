@@ -36,10 +36,20 @@ Sheet {
                 enabled: !row.model.is_object
                 onClicked: sheet.picked(row.model.name)
             }
+            AprsSymbol {
+                id: symbol
+                anchors.left: parent.left
+                anchors.leftMargin: Theme.gap
+                anchors.verticalCenter: parent.verticalCenter
+                width: 44 * Theme.u
+                height: width
+                table: row.model.symbol_table || ""
+                code: row.model.symbol || ""
+            }
             Text {
                 id: name
-                anchors.left: parent.left
-                anchors.leftMargin: Theme.gap * 1.5
+                anchors.left: symbol.right
+                anchors.leftMargin: Theme.gap
                 anchors.top: parent.top
                 anchors.topMargin: Theme.gap / 2
                 text: row.model.name

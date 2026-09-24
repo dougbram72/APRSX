@@ -26,6 +26,27 @@ function clock(ts) {
   return new Date(ts * 1000).toLocaleTimeString([], { hour12: false });
 }
 
+// APRS symbol from the sprite sheets in aprsx/symbols: 16x6 cells, index = code - 33.
+// table "/" = primary, "\\" = alternate, 0-9/A-Z = alternate with that overlay.
+const SYMBOL_PX = 24;
+
+function symbolCell(sheet, index) {
+  const x = -(index % 16) * SYMBOL_PX;
+  const y = -Math.floor(index / 16) * SYMBOL_PX;
+  return el("span", {
+    class: "sym",
+    style: `background-image:url(symbols/aprs-symbols-64-${sheet}.png);background-position:${x}px ${y}px`,
+  });
+}
+
+function symbolEl(table, code) {
+  const index = code ? code.charCodeAt(0) - 33 : -1;
+  if (!table || index < 0 || index >= 96) return el("span", { class: "sym" });
+  const node = symbolCell(table === "/" ? 0 : 1, index);
+  if (/^[0-9A-Z]$/.test(table)) node.append(symbolCell(2, table.charCodeAt(0) - 33));
+  return node;
+}
+
 function setPill(id, text, cls) {
   const p = $(id);
   p.textContent = text;

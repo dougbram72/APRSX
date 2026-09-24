@@ -32,6 +32,7 @@ class CoreClient(QObject):
     configChanged = Signal()
     unreadChanged = Signal()
     peersChanged = Signal()
+    symbolsChanged = Signal()
     toast = Signal(str)
     messageArrived = Signal(int)  # id of a new incoming message
     rxActivity = Signal()
@@ -47,6 +48,7 @@ class CoreClient(QObject):
         self._raw = message_model(self)     # rows as the core has them
         self._messages = card_model(self)   # what the carousel shows
         self._stations = station_model(self)
+        self._symbols: dict[str, str] = {}  # station -> symbol table + code
         self._nam = QNetworkAccessManager(self)
         self._ws = QWebSocket(parent=self)
         self._ws.connected.connect(self._on_connected)
@@ -81,6 +83,11 @@ class CoreClient(QObject):
     @Property(QObject, constant=True)
     def stations(self) -> RowModel:
         return self._stations
+
+    @Property("QVariantMap", notify=symbolsChanged)
+    def symbols(self) -> dict[str, str]:
+        """Station name -> two characters, symbol table then symbol code."""
+        return self._symbols
 
     @Property("QVariantList", notify=peersChanged)
     def quickPeers(self) -> list[str]:
@@ -128,7 +135,7 @@ class CoreClient(QObject):
         self._request("GET", f"/api/messages?limit={MESSAGE_HISTORY}",
                       callback=lambda s, d: s == 200 and self._reset_messages(d))
         self._request("GET", "/api/stations",
-                      callback=lambda s, d: s == 200 and self._stations.reset(d))
+                      callback=lambda s, d: s == 200 and self._reset_stations(d))
 
     @Slot(str, str)
     def sendMessage(self, to: str, text: str) -> None:
@@ -191,6 +198,7 @@ class CoreClient(QObject):
             (self.txActivity if data.get("direction") == "tx" else self.rxActivity).emit()
         elif type == "station":
             self._stations.upsert(data)
+            self._note_symbol(data)
         elif type in ("message", "ack"):
             self._upsert_message(data)
             if type == "message" and data["direction"] == "in" and not data["read"]:
@@ -199,6 +207,20 @@ class CoreClient(QObject):
         elif type == "read":
             self._mark_read_locally(data["peer"])
             self._set_unread(data["unread"])
+
+    # --- stations ----------------------------------------------------------
+
+    def _reset_stations(self, rows: list[dict]) -> None:
+        self._stations.reset(rows)
+        self._symbols = {s["name"]: s["symbol_table"] + s["symbol"]
+                         for s in rows if s.get("symbol_table") and s.get("symbol")}
+        self.symbolsChanged.emit()
+
+    def _note_symbol(self, station: dict) -> None:
+        sym = (station.get("symbol_table") or "") + (station.get("symbol") or "")
+        if len(sym) == 2 and self._symbols.get(station["name"]) != sym:
+            self._symbols = {**self._symbols, station["name"]: sym}
+            self.symbolsChanged.emit()
 
     # --- messages ----------------------------------------------------------
 

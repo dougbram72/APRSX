@@ -26,6 +26,7 @@ from .messaging import MessageError
 from .service import Core
 
 WEB_DIR = Path(__file__).parent / "web"
+SYMBOL_DIR = Path(__file__).parents[1] / "symbols"  # APRS symbol sprite sheets
 
 
 class SendMessage(BaseModel):
@@ -125,5 +126,6 @@ def create_app(core: Core, run_core: bool = True) -> FastAPI:
                 ):
                     raise r
 
+    app.mount("/symbols", StaticFiles(directory=SYMBOL_DIR), name="symbols")
     app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
     return app

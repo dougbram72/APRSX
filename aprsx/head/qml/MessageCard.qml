@@ -26,9 +26,21 @@ Item {
                 width: parent.width
                 height: who.implicitHeight
 
+                AprsSymbol {
+                    id: peerSymbol
+                    readonly property string sym: core.symbols[card.model.peer] || ""
+                    visible: sym.length === 2
+                    anchors.left: parent.left
+                    anchors.verticalCenter: who.verticalCenter
+                    width: visible ? 40 * Theme.u : 0
+                    height: width
+                    table: sym.charAt(0)
+                    code: sym.charAt(1)
+                }
                 Text {
                     id: who
-                    anchors.left: parent.left
+                    anchors.left: peerSymbol.right
+                    anchors.leftMargin: peerSymbol.visible ? Theme.gap : 0
                     text: (card.incoming ? "From " : "To ") + card.model.peer
                     color: card.incoming ? Theme.accent : Theme.text
                     font.pixelSize: Theme.large

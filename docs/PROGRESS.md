@@ -115,6 +115,8 @@ Newest first. Note the date, the phase/WP, what was decided, and why.
 
 ### 2026-09-24: Head unit (phase 4)
 
+- **APRS symbols use the aprs.fi set** (hessu/aprs-symbols, 64 px sprite sheets in `aprsx/symbols/` with its COPYRIGHT.md; the author asks for a link to the source). One copy serves both UIs: the head unit reads the files, and the core serves them at `/symbols/`. Cell for symbol code `c` = `ord(c) - 33` in a 16×6 grid. Table `/` = primary sheet, `\` = alternate, `0-9`/`A-Z` = alternate plus an overlay character from the third sheet. Shown in the head's Stations list and next to the callsign on message cards (from the station's last known symbol), and in the web stations table. The phase 6 map can use the same sheets.
+
 - **The head unit runs on the Pi's system Python with Debian's PySide6 6.8.2** (`deploy/head-apt-packages.txt`), not in the core's venv. Debian's Qt uses the Pi's Mesa stack and includes the virtual keyboard; the pip wheels would be much bigger. The head imports nothing from `aprsx.core`, so it needs only PySide6. Run it with `PYTHONPATH=~/aprsx python3 -m aprsx.head --fullscreen`. Keep QML to Qt 6.8 features (the dev machine has 6.11).
 - **Networking uses Qt only** (QNetworkAccessManager + QWebSocket on Qt's event loop), with no asyncio in the UI process. After every (re)connect it reloads status, config, the last 200 messages and the stations over REST, then follows `/ws`.
 - **WP4.6: on this Pi it runs as a full-screen Wayland window under labwc**, because the desktop image's compositor owns the DSI display, so eglfs can't take it. eglfs is for a Lite/kiosk image and moves to phase 8 (boot and install setup). Qt's `-platform` options pass straight through.

@@ -132,6 +132,7 @@ class RowModel(QAbstractListModel):
 MESSAGE_ROLES = ("id", "ts", "direction", "peer", "text", "msgno", "state", "tries", "read")
 CARD_ROLES = MESSAGE_ROLES + ("parts", "last_id", "last_ts")
 STATION_ROLES = ("name", "is_object", "last_heard", "heard_direct", "path", "lat", "lon",
+                 "symbol_table", "symbol",
                  "comment", "distance_km", "bearing", "speed_kmh", "course")
 
 

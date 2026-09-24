@@ -24,7 +24,7 @@ function renderStations() {
   body.replaceChildren(
     ...rows.map((s) =>
       el("tr", { "data-name": s.name },
-        el("td", { class: "name" }, s.name),
+        el("td", { class: "name" }, symbolEl(s.symbol_table, s.symbol), s.name),
         el("td", { "data-ts": s.last_heard }, ago(s.last_heard)),
         el("td", { class: "num" }, distance(s.distance_km)),
         el("td", { class: "num" }, s.bearing == null ? "" : `${s.bearing}°`),

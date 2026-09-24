@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 QML_DIR = Path(__file__).parent / "qml"
+SYMBOL_DIR = Path(__file__).parents[1] / "symbols"
 
 
 def load(url: str, keyboard: bool = True, warnings: list[str] | None = None):
@@ -20,6 +21,7 @@ def load(url: str, keyboard: bool = True, warnings: list[str] | None = None):
 
     QML warnings are appended to ``warnings`` when given (tests).
     """
+    from PySide6.QtCore import QUrl
     from PySide6.QtQml import QQmlApplicationEngine
 
     from .client import CoreClient
@@ -30,6 +32,7 @@ def load(url: str, keyboard: bool = True, warnings: list[str] | None = None):
         engine.warnings.connect(lambda ws: warnings.extend(w.toString() for w in ws))
     engine.rootContext().setContextProperty("core", client)
     engine.rootContext().setContextProperty("vkbEnabled", keyboard)
+    engine.rootContext().setContextProperty("symbolDir", QUrl.fromLocalFile(str(SYMBOL_DIR)).toString())
     engine.load(QML_DIR / "Main.qml")
     if not engine.rootObjects():
         raise RuntimeError("failed to load Main.qml")
