@@ -5,7 +5,7 @@ into work packages (WPs). Tick a box when the WP is done and verified. Record an
 departure from DESIGN.md, and any choice DESIGN.md left open, in the decision log at
 the bottom.
 
-**Status (2026-09-24):** phases 1–4 and 6 done. Phase 5 (GPS + beaconing) waits for the GPS hardware; phase 7 (online features) can go next. Phase 9 (FTM-200D backend) was added 2026-09-24.
+**Status (2026-09-24):** phases 1–4 and 6 done; phase 7 (online features) is built and running on the test Pi, with only the offline test (WP7.5) left. Phase 5 (GPS + beaconing) waits for the GPS hardware. Phase 9 (FTM-200D backend) was added 2026-09-24.
 
 ---
 
@@ -77,10 +77,10 @@ the bottom.
 ## Phase 7: Online features
 
 - [ ] **Phase 7 complete**
-- [ ] WP7.1 APRS-IS client (passcode, filter) with connectivity check
-- [ ] WP7.2 RF → IS iGate
-- [ ] WP7.3 IS → RF for messages to stations heard locally (standard iGate rules)
-- [ ] WP7.4 IS stations on the map, marked as `channel='is'`
+- [x] WP7.1 APRS-IS client (passcode, filter) with connectivity check
+- [x] WP7.2 RF → IS iGate
+- [x] WP7.3 IS → RF for messages to stations heard locally (standard iGate rules)
+- [x] WP7.4 IS stations on the map, marked as `channel='is'`
 - [ ] WP7.5 Offline test: drop the hotspot, confirm RF messaging, map and head unit keep working
 
 ## Phase 8: Packaging
@@ -112,6 +112,18 @@ serial bridge in the core stands in for Direwolf.
 ## Decision log
 
 Newest first. Note the date, the phase/WP, what was decided, and why.
+
+### 2026-09-24: Online features (phase 7)
+
+- **APRS-IS client** (`aprsis.py`): one login (`user CALL pass N vers APRS-X 0.1 filter …`). It counts as disconnected after 90 s of silence (servers send a `#` keepalive about every 20 s) and reconnects with 5/10/30/60/120 s back-off. It only sends once the `# logresp` says *verified*. Status reports `aprsis_enabled/connected/verified/server` and gate counts; the head unit's IS pill and a new header pill on the web pages use them. The passcode is the standard algorithm (`/api/aprsis/passcode`, with a Calculate button in Settings). The login is repeated when the callsign, server, passcode, filter or fixed position changes.
+- **`m/N` filters become `r/lat/lon/N`** when we know our position. The server only knows our position from packets we've sent to APRS-IS, and we don't beacon yet (phase 5).
+- **RF → IS** (`aprsis.igate`): gates every received packet with `,qAR,<call>` added, except those with TCPIP/TCPXX/NOGATE/RFONLY in the path, third-party (`}`) packets and `?` queries. Info is cut at the first CR/LF/NUL. Digipeated copies are gated once (keyed on source, dest and info, 30 s).
+- **IS → RF** (`aprsis.is_to_rf`, off by default because it transmits): only messages and acks, only to a station heard *directly* on RF in the last 30 min, and not when the sender itself was heard on RF in that time (it can reach the station directly). Not when the path has TCPXX/NOGATE/RFONLY or our call. Sent as `}SRC>DEST,TCPIP,OURCALL*:info` with no digipeater path (the target is in direct range). Limited to 6 per minute and 10 per 5 minutes, deduplicated, and never echoed back to APRS-IS.
+- **Our own packets go to both RF and APRS-IS** when the login is verified (`Core.transmit(..., to_is=True)`); each copy is logged with its channel. Messages and acks to internet stations (WXBOT) therefore work without a local iGate, and a message counts as sent if either path worked. APRS-IS drops the duplicate if another iGate also gates our RF copy.
+- **APRS-IS stations are stored with `channel='is'`.** Migration 4 adds `stations.channel`, `rf_heard` and `rf_direct`, so the IS→RF "local" test only uses RF sightings. APRS-IS paths contain non-AX.25 elements (`qAC`, `T2USA`, SSIDs like `-D`), so IS lines are handled as text, not as `ax25.Frame`s. `station_record()` now takes the source and path as strings.
+- **An APRS-IS copy of a station heard on RF in the last 30 min doesn't turn it into an IS station** (channel, path and "direct" stay RF). Found live: our own RF→IS gating, or another iGate's, sends Graywolf's beacon straight back to us over APRS-IS.
+- **Flaky WebSocket tests fixed** (`tests/conftest.py: close_ws`). Starlette's TestClient cancels the app right after sending the disconnect, so the `/ws` handler's cleanup sometimes raised CancelledError (about 50% of runs). The tests now close the socket and let the handler finish first. Real servers wait for the handler (`test_server.py`).
+- **On the test Pi:** APRS-IS is on, logged in as KF0KBP-7 (verified), with filter `r/39.78/-95.56/50` (Graywolf's area, narrowed) and RF→IS gating on. IS→RF is off. It gated Graywolf's 13:32 beacon.
 
 ### 2026-09-24: Web config + map (phase 6)
 

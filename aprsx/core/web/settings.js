@@ -106,6 +106,22 @@ async function refreshPreviews() {
     ? `MBTiles packs: ${t.packs.join(", ")}` : "No MBTiles packs installed.";
 }
 
+function renderAprsIs(status) {
+  const s = !status.aprsis_enabled ? "APRS-IS is off."
+    : status.aprsis_verified ? `Logged in to ${status.aprsis_server || "APRS-IS"} (verified).`
+    : status.aprsis_connected ? "Connected, receive-only (passcode not accepted)."
+    : "Not connected: no internet, or the server can't be reached. Retrying.";
+  const g = status.gated || {};
+  $("#aprsis-state").textContent = `${s} Gated: ${g.rf_to_is ?? 0} RF→IS, ${g.is_to_rf ?? 0} IS→RF.`;
+}
+
+$("#calc-passcode").onclick = async () => {
+  const call = form.elements.callsign.value.trim();
+  if (!call) return;
+  const r = await getJSON(`api/aprsis/passcode?callsign=${encodeURIComponent(call)}`);
+  form.elements["aprsis.passcode"].value = r.passcode;
+};
+
 function renderPassword(config) {
   $("#password-state").textContent = config.has_password
     ? "A password is set. Enter a new one to change it." : "No password: anyone on this network can change settings.";
@@ -172,7 +188,9 @@ async function save(body, message) {
   state.config = data.config;
   fillForm(state.config);
   renderPassword(state.config);
-  renderHeader(await getJSON("api/status"));
+  const status = await getJSON("api/status");
+  renderHeader(status);
+  renderAprsIs(status);
   $("#new-password").value = $("#new-password2").value = "";
   const dw = data.direwolf;
   $("#direwolf-result").className = dw?.error ? "error" : "hint";
@@ -211,6 +229,7 @@ async function loadInitial() {
     getJSON("api/status"), getJSON("api/config"), getJSON("api/session"), getJSON("api/system/devices"),
   ]);
   renderHeader(status);
+  renderAprsIs(status);
   state.config = config;
   fillForm(config);
   renderDevices(devices);
@@ -220,4 +239,6 @@ async function loadInitial() {
 }
 
 loadInitial().catch((e) => console.error("load failed", e));
-connectLive((type, data) => { if (type === "status") renderHeader(data); }, () => {});
+connectLive((type, data) => {
+  if (type === "status") { renderHeader(data); renderAprsIs(data); }
+}, () => {});

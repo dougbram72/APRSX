@@ -45,7 +45,7 @@ function popup(s) {
     el("div", { class: "pop-meta" },
       `Heard ${ago(s.last_heard)} ago`,
       s.distance_km != null ? ` · ${distance(s.distance_km)} ${s.bearing}°` : "",
-      ` · ${s.heard_direct ? "direct" : s.path || ""}`),
+      ` · ${s.channel === "is" ? "via APRS-IS" : s.heard_direct ? "direct" : s.path || ""}`),
   ];
   if (!s.is_object) {
     lines.push(el("a", { href: `chat.html?to=${encodeURIComponent(s.name)}`, class: "pop-link" }, "Message"));
@@ -55,7 +55,8 @@ function popup(s) {
 
 function upsertStation(s) {
   if (s.lat == null || s.lon == null) return;
-  const stale = Date.now() / 1000 - s.last_heard > STALE_S ? "stale" : "";
+  const stale = [Date.now() / 1000 - s.last_heard > STALE_S ? "stale" : "",
+                 s.channel === "is" ? "is" : ""].join(" ");
   let m = state.markers.get(s.name);
   if (!m) {
     m = L.marker([s.lat, s.lon]).addTo(map);

@@ -33,6 +33,7 @@ class AprsIs(BaseModel):
     passcode: int = Field(-1, ge=-1, le=32767)
     filter: str = "m/50"
     igate: bool = False  # gate RF -> IS when online
+    is_to_rf: bool = False  # gate IS messages to stations heard directly on RF (transmits)
 
 
 class Config(BaseModel):

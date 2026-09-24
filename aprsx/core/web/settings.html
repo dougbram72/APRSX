@@ -18,6 +18,7 @@
     <div class="status">
       <span id="link" class="pill bad">Connecting…</span>
       <span id="tnc" class="pill">TNC —</span>
+      <span id="is" class="pill hidden">APRS-IS</span>
     </div>
   </header>
 
@@ -105,15 +106,21 @@
 
       <fieldset class="panel">
         <legend>APRS-IS</legend>
-        <p class="hint">Used when the internet link arrives (phase 7).</p>
-        <label class="check"><input name="aprsis.enabled" type="checkbox"> Connect to APRS-IS when online</label>
-        <label class="check"><input name="aprsis.igate" type="checkbox"> Gate RF packets to APRS-IS (iGate)</label>
+        <p id="aprsis-state" class="hint"></p>
+        <label class="check"><input name="aprsis.enabled" type="checkbox"> Connect to APRS-IS when online
+          <span class="hint">Keeps trying in the background; messages and acks also go straight to APRS-IS while logged in.</span></label>
+        <label class="check"><input name="aprsis.igate" type="checkbox"> iGate: pass RF packets to APRS-IS</label>
+        <label class="check"><input name="aprsis.is_to_rf" type="checkbox"> iGate: pass APRS-IS messages to local stations on RF
+          <span class="hint">Only messages for stations heard directly on RF in the last 30 minutes, at most 6 a minute. This transmits from this radio.</span></label>
         <div class="grid">
           <label>Server <input name="aprsis.server" class="mono"></label>
           <label>Port <input name="aprsis.port" type="number"></label>
-          <label>Passcode <input name="aprsis.passcode" type="number"></label>
+          <label>Passcode
+            <span class="inline"><input name="aprsis.passcode" type="number">
+            <button type="button" id="calc-passcode" class="small">Calculate</button></span></label>
           <label>Filter <input name="aprsis.filter" class="mono"></label>
         </div>
+        <p class="hint">Passcode -1 logs in receive-only (no gating or sending). Filter "m/50" means 50 km around this station's position.</p>
       </fieldset>
 
       <fieldset class="panel">

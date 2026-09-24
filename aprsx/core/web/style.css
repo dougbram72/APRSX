@@ -284,3 +284,13 @@ button:disabled { opacity: 0.5; cursor: default; }
 pre#direwolf-conf { background: var(--bg); padding: 8px; border-radius: 6px; overflow: auto; font-size: 0.8rem; }
 details { margin-top: 8px; }
 #login { max-width: 420px; margin: 0 auto 16px; display: flex; flex-direction: column; gap: 8px; }
+
+/* --- APRS-IS ------------------------------------------------------------- */
+
+#packets li.is { color: var(--muted); }
+#packets .chan {
+  font-size: 0.7rem; border: 1px solid var(--border); border-radius: 4px; padding: 0 3px; margin-right: 6px;
+}
+.map-sym.is .map-label { background: rgba(230, 236, 245, 0.85); color: #5d6878; font-style: italic; }
+.inline { display: flex; gap: 6px; }
+.inline input { flex: 1; min-width: 0; }

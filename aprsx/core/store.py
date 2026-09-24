@@ -9,6 +9,10 @@ from pathlib import Path
 
 from .config import Config
 
+# A station heard on RF within this long stays shown as an RF station even when
+# APRS-IS copies of its packets arrive.
+RF_STICKY_S = 30 * 60
+
 # Each entry upgrades the schema by one version. Append; never edit old entries.
 _MIGRATIONS: list[str] = [
     """
@@ -63,6 +67,15 @@ _MIGRATIONS: list[str] = [
     );
     CREATE INDEX messages_peer ON messages (peer, id);
     CREATE INDEX messages_due ON messages (next_try) WHERE state = 'pending';
+    """,
+    """
+    -- Stations can be heard over APRS-IS too. rf_heard/rf_direct keep the RF
+    -- sightings separate, so an internet packet never makes a station look local.
+    ALTER TABLE stations ADD COLUMN channel TEXT NOT NULL DEFAULT 'rf';  -- of the last packet
+    ALTER TABLE stations ADD COLUMN rf_heard REAL;    -- last heard on RF
+    ALTER TABLE stations ADD COLUMN rf_direct REAL;   -- last heard directly (no digi) on RF
+    UPDATE stations SET rf_heard = last_heard,
+                        rf_direct = CASE WHEN heard_direct THEN last_heard END;
     """,
 ]
 
@@ -172,10 +185,12 @@ class Store:
     def upsert_station(self, st: dict) -> dict:
         """Record a packet heard from a station.
 
-        ``st`` needs name, ts, is_object, last_format, heard_direct, path; the
-        position fields (lat, lon, symbol_table, symbol, comment, speed_kmh,
-        course) are optional. A packet without a position keeps the last one.
+        ``st`` needs name, ts, is_object, last_format, heard_direct, path and
+        channel ('rf' or 'is'); the position fields (lat, lon, symbol_table,
+        symbol, comment, speed_kmh, course) are optional. A packet without a
+        position keeps the last one.
         """
+        channel = st.get("channel", "rf")
         pos = {k: st.get(k) for k in
                ("lat", "lon", "symbol_table", "symbol", "comment", "speed_kmh", "course")}
         has_pos = pos["lat"] is not None and pos["lon"] is not None
@@ -184,15 +199,21 @@ class Store:
                 """
                 INSERT INTO stations (name, is_object, first_heard, last_heard, packet_count,
                     last_format, heard_direct, path, lat, lon, pos_ts, symbol_table, symbol,
-                    comment, speed_kmh, course)
+                    comment, speed_kmh, course, channel, rf_heard, rf_direct)
                 VALUES (:name, :is_object, :ts, :ts, 1, :last_format, :heard_direct, :path,
-                    :lat, :lon, :pos_ts, :symbol_table, :symbol, :comment, :speed_kmh, :course)
+                    :lat, :lon, :pos_ts, :symbol_table, :symbol, :comment, :speed_kmh, :course,
+                    :channel, :rf_heard, :rf_direct)
                 ON CONFLICT(name) DO UPDATE SET
+                    -- An APRS-IS copy of a station we hear on RF (another iGate
+                    -- gated it) mustn't make it look like an internet station.
+                    channel      = CASE WHEN :keep_rf THEN channel ELSE excluded.channel END,
+                    heard_direct = CASE WHEN :keep_rf THEN heard_direct ELSE excluded.heard_direct END,
+                    path         = CASE WHEN :keep_rf THEN path ELSE excluded.path END,
+                    rf_heard     = COALESCE(excluded.rf_heard, rf_heard),
+                    rf_direct    = COALESCE(excluded.rf_direct, rf_direct),
                     last_heard   = excluded.last_heard,
                     packet_count = packet_count + 1,
                     last_format  = excluded.last_format,
-                    heard_direct = excluded.heard_direct,
-                    path         = excluded.path,
                     lat          = CASE WHEN :has_pos THEN excluded.lat ELSE lat END,
                     lon          = CASE WHEN :has_pos THEN excluded.lon ELSE lon END,
                     pos_ts       = CASE WHEN :has_pos THEN excluded.pos_ts ELSE pos_ts END,
@@ -208,6 +229,10 @@ class Store:
                     "heard_direct": int(st.get("heard_direct", False)),
                     "path": st.get("path"), "pos_ts": st["ts"] if has_pos else None,
                     "has_pos": has_pos, **pos,
+                    "channel": channel,
+                    "keep_rf": channel == "is" and self._heard_on_rf(st["name"], st["ts"] - RF_STICKY_S),
+                    "rf_heard": st["ts"] if channel == "rf" else None,
+                    "rf_direct": st["ts"] if channel == "rf" and st.get("heard_direct") else None,
                 },
             )
         return self.get_station(st["name"])
@@ -216,6 +241,17 @@ class Store:
     def get_station(self, name: str) -> dict | None:
         row = self.conn.execute("SELECT * FROM stations WHERE name = ?", (name,)).fetchone()
         return dict(row) if row else None
+
+    @_locked
+    def heard_on_rf(self, name: str, since: float, direct: bool = False) -> bool:
+        """Was ``name`` heard on RF (directly, if ``direct``) at or after ``since``?"""
+        return self._heard_on_rf(name, since, direct)
+
+    def _heard_on_rf(self, name: str, since: float, direct: bool = False) -> bool:
+        col = "rf_direct" if direct else "rf_heard"
+        row = self.conn.execute(
+            f"SELECT 1 FROM stations WHERE name = ? AND {col} >= ?", (name, since)).fetchone()
+        return row is not None
 
     @_locked
     def list_stations(self, limit: int = 500) -> list[dict]:

@@ -8,6 +8,7 @@ REST:  GET  /api/status, /api/config, /api/packets?limit=&before=, /api/stations
             (fields left out keep their values; nested groups merge)
        GET  /api/session; POST /api/login {password}; POST /api/logout
        GET  /api/system/devices              -> sound cards and serial ports
+       GET  /api/aprsis/passcode?callsign=   -> APRS-IS passcode
        GET  /api/direwolf.conf               -> the config Direwolf gets
        GET  /tiles/{z}/{x}/{y}.png           -> map tiles (see tiles.py)
 [auth]: needs a session when a settings password is set, except from loopback.
@@ -34,7 +35,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import auth, direwolf
+from . import aprsis, auth, direwolf
 from .config import Config
 from .messaging import MessageError
 from .service import Core
@@ -173,6 +174,10 @@ def create_app(core: Core, run_core: bool = True, tiles_dir: Path | None = None)
         sessions.revoke(request.cookies.get(auth.COOKIE))
         response.delete_cookie(auth.COOKIE)
         return {"authenticated": False}
+
+    @app.get("/api/aprsis/passcode")
+    def aprsis_passcode(callsign: str):
+        return {"callsign": callsign.upper(), "passcode": aprsis.passcode(callsign)}
 
     @app.get("/api/system/devices")
     def devices():
