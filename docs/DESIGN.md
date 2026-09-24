@@ -73,6 +73,7 @@ CLAUDE.md
 6. **Web config + map**: settings pages (callsign/SSID, symbol, path, beacon comment, SmartBeacon parameters, canned messages, favorites, APRS-IS, digipeater on/off, audio device) that regenerate direwolf.conf and restart it. Leaflet map with an offline tile cache.
 7. **Online features**: APRS-IS connection, iGate, and IS stations shown on the map.
 8. **Packaging**: install script, systemd units, one-command setup on a fresh SD card.
+9. **Yaesu FTM-200D backend** (added 2026-09-24): the FTM-200D has a built-in APRS modem and connects through its data port with a Yaesu SCU-66 data-to-USB cable. With this radio, a serial bridge in aprsx-core takes the place of Direwolf in the receive path and converts the radio's data-port output to standard TNC2 packets. The rest of the core and the UIs stay the same. The radio backend (Direwolf/KISS or FTM-200 serial) is chosen in settings. What can be transmitted through the data port is still to be found out. If it can't transmit, the UIs show that TX isn't available and the radio's own APRS functions handle beacons and messages.
 
 ## Verification
 - `pytest` for parsing/encoding, the messaging retry/ack state machine, and SmartBeaconing rate/turn math (no hardware needed).

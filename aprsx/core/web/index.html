@@ -9,6 +9,10 @@
 <body>
   <header>
     <h1>APRS-X <span id="station" class="call"></span></h1>
+    <nav>
+      <a href="./" aria-current="page">Live</a>
+      <a href="chat.html">Messages <span id="nav-unread" class="badge"></span></a>
+    </nav>
     <div class="status">
       <span id="link" class="pill bad">Connecting…</span>
       <span id="tnc" class="pill">TNC —</span>
@@ -39,6 +43,7 @@
     </section>
   </main>
 
+  <script src="common.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

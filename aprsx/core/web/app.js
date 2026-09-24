@@ -1,31 +1,7 @@
 "use strict";
 
 const MAX_PACKETS = 300;
-const $ = (sel) => document.querySelector(sel);
-
 const state = { stations: new Map(), units: "imperial" };
-
-function el(tag, attrs = {}, ...children) {
-  const node = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (k === "class") node.className = v;
-    else node.setAttribute(k, v);
-  }
-  for (const c of children) node.append(c ?? "");
-  return node;
-}
-
-function ago(ts) {
-  const s = Math.max(0, Math.round(Date.now() / 1000 - ts));
-  if (s < 60) return `${s}s`;
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h`;
-  return `${Math.floor(s / 86400)}d`;
-}
-
-function clock(ts) {
-  return new Date(ts * 1000).toLocaleTimeString([], { hour12: false });
-}
 
 function distance(km) {
   if (km == null) return "";
@@ -34,16 +10,9 @@ function distance(km) {
 
 // --- status -----------------------------------------------------------------
 
-function setPill(id, text, cls) {
-  const p = $(id);
-  p.textContent = text;
-  p.className = `pill ${cls ?? ""}`;
-}
-
 function renderStatus(s) {
   state.units = s.units;
-  $("#station").textContent = s.station;
-  setPill("#tnc", s.kiss_connected ? "TNC connected" : "TNC offline", s.kiss_connected ? "good" : "bad");
+  renderHeader(s);
   setPill("#rx", `${s.rx_count} rx`);
 }
 
@@ -55,7 +24,7 @@ function renderStations() {
   body.replaceChildren(
     ...rows.map((s) =>
       el("tr", { "data-name": s.name },
-        el("td", { class: "name" }, s.name),
+        el("td", { class: "name" }, symbolEl(s.symbol_table, s.symbol), s.name),
         el("td", { "data-ts": s.last_heard }, ago(s.last_heard)),
         el("td", { class: "num" }, distance(s.distance_km)),
         el("td", { class: "num" }, s.bearing == null ? "" : `${s.bearing}°`),
@@ -77,7 +46,7 @@ function upsertStation(s) {
 // --- packets ----------------------------------------------------------------
 
 function packetItem(p) {
-  return el("li", {},
+  return el("li", p.direction === "tx" ? { class: "tx" } : {},
     el("time", {}, clock(p.ts)),
     p.raw,
     p.format ? el("span", { class: "fmt" }, p.format) : "",
@@ -99,9 +68,9 @@ function addPacket(p, fresh = true) {
 // page shows current data even if the live WebSocket is down.
 async function loadInitial() {
   const [status, stations, packets] = await Promise.all([
-    fetch("api/status").then((r) => r.json()),
-    fetch("api/stations").then((r) => r.json()),
-    fetch(`api/packets?limit=${MAX_PACKETS}`).then((r) => r.json()),
+    getJSON("api/status"),
+    getJSON("api/stations"),
+    getJSON(`api/packets?limit=${MAX_PACKETS}`),
   ]);
   renderStatus(status);
   state.stations = new Map(stations.map((s) => [s.name, s]));
@@ -110,26 +79,19 @@ async function loadInitial() {
   $("#packets-empty").classList.toggle("hidden", packets.length > 0);
 }
 
-function connect() {
-  const proto = location.protocol === "https:" ? "wss" : "ws";
-  const ws = new WebSocket(`${proto}://${location.host}/ws`);
-  ws.onopen = () => {
-    setPill("#link", "Live", "good");
-    loadInitial().catch((e) => console.error("initial load failed", e));
-  };
-  ws.onmessage = (ev) => {
-    const { type, data } = JSON.parse(ev.data);
-    if (type === "status") renderStatus(data);
-    else if (type === "packet") {
-      addPacket(data);
+function onEvent(type, data) {
+  if (type === "status") renderStatus(data);
+  else if (type === "packet") {
+    addPacket(data);
+    if (data.direction === "rx") {
       const rx = $("#rx");
       rx.textContent = `${parseInt(rx.textContent, 10) + 1} rx`;
-    } else if (type === "station") upsertStation(data);
-  };
-  ws.onclose = () => {
-    setPill("#link", "Reconnecting…", "bad");
-    setTimeout(connect, 3000);
-  };
+    }
+  } else if (type === "station") upsertStation(data);
+  else if (type === "message" && data.direction === "in") {
+    const unread = $("#nav-unread");
+    unread.textContent = String((parseInt(unread.textContent, 10) || 0) + 1);
+  } else if (type === "read") $("#nav-unread").textContent = data.unread ? String(data.unread) : "";
 }
 
 // Keep "heard N ago" fresh without re-rendering everything.
@@ -139,5 +101,6 @@ setInterval(() => {
   }
 }, 10000);
 
-loadInitial().catch((e) => console.error("initial load failed", e));
-connect();
+const reload = () => loadInitial().catch((e) => console.error("initial load failed", e));
+reload();
+connectLive(onEvent, reload);

@@ -44,6 +44,24 @@ _MIGRATIONS: list[str] = [
         course       INTEGER
     );
     """,
+    """
+    CREATE TABLE messages (
+        id        INTEGER PRIMARY KEY,
+        ts        REAL NOT NULL,
+        direction TEXT NOT NULL,                -- in | out
+        peer      TEXT NOT NULL,                -- the other station
+        text      TEXT NOT NULL,
+        msgno     TEXT,
+        state     TEXT NOT NULL,                -- in: received; out: pending|acked|rejected|failed
+        tries     INTEGER NOT NULL DEFAULT 0,
+        next_try  REAL,                         -- out, pending only
+        acked_ts  REAL,
+        read      INTEGER NOT NULL DEFAULT 0,   -- in only
+        channel   TEXT NOT NULL DEFAULT 'rf'    -- rf | is
+    );
+    CREATE INDEX messages_peer ON messages (peer, id);
+    CREATE INDEX messages_due ON messages (next_try) WHERE state = 'pending';
+    """,
 ]
 
 
@@ -75,6 +93,17 @@ class Store:
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (config.model_dump_json(),),
             )
+
+    def next_seq(self, key: str) -> int:
+        """Increment and return a persistent counter kept in the settings table."""
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?, '1') "
+                "ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1",
+                (key,),
+            )
+        row = self.conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        return int(row["value"])
 
     # --- packets -----------------------------------------------------------
 
@@ -167,3 +196,92 @@ class Store:
             "SELECT * FROM stations ORDER BY last_heard DESC LIMIT ?", (limit,)
         )
         return [dict(r) for r in rows]
+
+    # --- messages ----------------------------------------------------------
+
+    _MESSAGE_FIELDS = ("ts", "direction", "peer", "text", "msgno", "state", "tries",
+                       "next_try", "acked_ts", "read", "channel")
+
+    def add_message(self, **fields) -> dict:
+        cols = [k for k in fields if k in self._MESSAGE_FIELDS]
+        with self.conn:
+            cur = self.conn.execute(
+                f"INSERT INTO messages ({', '.join(cols)}) "
+                f"VALUES ({', '.join(':' + c for c in cols)})",
+                fields,
+            )
+        return self.get_message(cur.lastrowid)
+
+    def update_message(self, id: int, **fields) -> dict:
+        cols = [k for k in fields if k in self._MESSAGE_FIELDS]
+        with self.conn:
+            self.conn.execute(
+                f"UPDATE messages SET {', '.join(f'{c} = :{c}' for c in cols)} WHERE id = :id",
+                {**fields, "id": id},
+            )
+        return self.get_message(id)
+
+    def get_message(self, id: int) -> dict | None:
+        row = self.conn.execute("SELECT * FROM messages WHERE id = ?", (id,)).fetchone()
+        return dict(row) if row else None
+
+    def list_messages(
+        self, peer: str | None = None, limit: int = 100, before_id: int | None = None
+    ) -> list[dict]:
+        """Newest first, optionally for one peer. Page backwards with before_id."""
+        rows = self.conn.execute(
+            "SELECT * FROM messages WHERE id < ? AND (? IS NULL OR peer = ?) "
+            "ORDER BY id DESC LIMIT ?",
+            (before_id if before_id is not None else 2**63 - 1, peer, peer, limit),
+        )
+        return [dict(r) for r in rows]
+
+    def due_messages(self, now: float) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM messages WHERE state = 'pending' AND next_try <= ? ORDER BY id",
+            (now,),
+        )
+        return [dict(r) for r in rows]
+
+    def find_pending(self, peer: str, msgno: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT * FROM messages WHERE direction = 'out' AND state = 'pending' "
+            "AND peer = ? AND msgno = ? ORDER BY id DESC LIMIT 1",
+            (peer, msgno),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def find_duplicate(self, peer: str, msgno: str | None, text: str, since: float) -> bool:
+        row = self.conn.execute(
+            "SELECT 1 FROM messages WHERE direction = 'in' AND peer = ? AND msgno IS ? "
+            "AND text = ? AND ts >= ? LIMIT 1",
+            (peer, msgno, text, since),
+        ).fetchone()
+        return row is not None
+
+    def conversations(self) -> list[dict]:
+        """One row per peer: last message and unread count, most recent first."""
+        rows = self.conn.execute(
+            """
+            SELECT m.peer, m.ts, m.text, m.direction, m.state,
+                   (SELECT COUNT(*) FROM messages u
+                     WHERE u.peer = m.peer AND u.direction = 'in' AND u.read = 0) AS unread
+            FROM messages m
+            WHERE m.id = (SELECT MAX(id) FROM messages WHERE peer = m.peer)
+            ORDER BY m.id DESC
+            """
+        )
+        return [dict(r) for r in rows]
+
+    def unread_count(self) -> int:
+        return self.conn.execute(
+            "SELECT COUNT(*) FROM messages WHERE direction = 'in' AND read = 0"
+        ).fetchone()[0]
+
+    def mark_read(self, peer: str) -> int:
+        with self.conn:
+            cur = self.conn.execute(
+                "UPDATE messages SET read = 1 WHERE peer = ? AND direction = 'in' AND read = 0",
+                (peer,),
+            )
+        return cur.rowcount

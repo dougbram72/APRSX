@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>APRS-X Messages</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>APRS-X <span id="station" class="call"></span></h1>
+    <nav>
+      <a href="./">Live</a>
+      <a href="chat.html" aria-current="page">Messages <span id="nav-unread" class="badge"></span></a>
+    </nav>
+    <div class="status">
+      <span id="link" class="pill bad">Connecting…</span>
+      <span id="tnc" class="pill">TNC —</span>
+    </div>
+  </header>
+
+  <main class="chat">
+    <section class="panel">
+      <h2>Conversations <button id="new" type="button" class="small">New</button></h2>
+      <div class="scroll">
+        <ul id="convs"></ul>
+        <p id="convs-empty" class="empty">No messages yet.</p>
+      </div>
+    </section>
+
+    <section class="panel thread-panel">
+      <h2 id="thread-title">New message</h2>
+      <div id="thread-scroll" class="scroll thread-scroll">
+        <ol id="thread"></ol>
+      </div>
+      <div id="canned" class="canned"></div>
+      <form id="compose" autocomplete="off">
+        <input id="to" name="to" placeholder="To (callsign)" maxlength="9" required
+               list="peers" autocapitalize="characters" spellcheck="false">
+        <datalist id="peers"></datalist>
+        <input id="text" name="text" placeholder="Message" maxlength="67" required>
+        <span id="counter" class="counter">67</span>
+        <button type="submit">Send</button>
+      </form>
+      <p id="error" class="error hidden"></p>
+    </section>
+  </main>
+
+  <script src="common.js"></script>
+  <script src="chat.js"></script>
+</body>
+</html>

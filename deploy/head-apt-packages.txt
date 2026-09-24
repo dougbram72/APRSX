@@ -1,0 +1,18 @@
+# Debian 13 (trixie) packages for aprsx-head, which runs on the system python3
+# (the Pi has no PySide6 wheels in its venv). Install with:
+#   sudo apt install $(grep -v '^#' deploy/head-apt-packages.txt)
+python3-pyside6.qtcore
+python3-pyside6.qtgui
+python3-pyside6.qtnetwork
+python3-pyside6.qtqml
+python3-pyside6.qtquick
+python3-pyside6.qtwebsockets
+qml6-module-qtquick
+qml6-module-qtquick-controls
+qml6-module-qtquick-templates
+qml6-module-qtquick-window
+qml6-module-qtqml-workerscript
+qml6-module-qtquick-virtualkeyboard
+qt6-virtualkeyboard-plugin
+qt6-svg-plugins
+qt6-wayland

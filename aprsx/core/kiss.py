@@ -155,9 +155,16 @@ class KissTcpClient:
                     log.exception("KISS frame handler failed")
         log.warning("KISS connection closed by peer")
 
-    async def send(self, frame: bytes, port: int = 0) -> None:
-        """Send one AX.25 frame. Raises ConnectionError if not connected."""
+    def write(self, frame: bytes, port: int = 0) -> None:
+        """Queue one AX.25 frame without waiting for the socket to drain.
+
+        Raises ConnectionError if not connected.
+        """
         if self._writer is None:
             raise ConnectionError("KISS not connected")
         self._writer.write(encode_frame(frame, port))
+
+    async def send(self, frame: bytes, port: int = 0) -> None:
+        """Send one AX.25 frame. Raises ConnectionError if not connected."""
+        self.write(frame, port)
         await self._writer.drain()

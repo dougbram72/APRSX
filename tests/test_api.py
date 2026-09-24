@@ -75,3 +75,10 @@ def test_web_page_served(client):
     assert r.status_code == 200
     assert "APRS-X" in r.text
     assert client.get("/app.js").status_code == 200
+
+
+def test_symbol_sheets_served(client):
+    for sheet in range(3):
+        r = client.get(f"/symbols/aprs-symbols-64-{sheet}.png")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "image/png"
