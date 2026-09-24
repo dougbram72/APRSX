@@ -218,6 +218,27 @@ def test_duplicate_window_expires(core, sent, clock):
     assert len(core.store.list_messages()) == 2
 
 
+def test_third_party_ack_and_reply_from_igate(core, sent):
+    """IS->RF traffic arrives wrapped by the iGate (the real packets from WXBOT)."""
+    msg = core.messenger.send("WXBOT", "66534")
+    rx(core, "KF0KBP-1>APGWLF:}WXBOT>APRS,TCPIP,KF0KBP-1*::KF0KBP-7 :ack01}")
+    assert core.store.get_message(msg["id"])["state"] == "acked"
+
+    rx(core, "KF0KBP-1>APGWLF:}WXBOT>APRS,TCPIP,KF0KBP-1*::KF0KBP-7 :Sabetha KS. Today{AB}")
+    [reply] = [m for m in core.store.list_messages() if m["direction"] == "in"]
+    assert (reply["peer"], reply["text"], reply["msgno"]) == ("WXBOT", "Sabetha KS. Today", "AB")
+    assert sent[-1] == f"{ME}>APZAPX,WIDE1-1::WXBOT    :ackAB"
+    # WXBOT used the reply-ack form, so our next message carries its number.
+    core.messenger.send("WXBOT", "again")
+    assert sent[-1].endswith(":WXBOT    :again{02}AB")
+
+
+def test_third_party_for_someone_else_is_ignored(core, sent):
+    rx(core, "KF0KBP-1>APGWLF:}WXBOT>APRS,TCPIP,KF0KBP-1*::W2XYZ    :not ours{AB}")
+    assert core.store.list_messages() == []
+    assert sent == []
+
+
 # --- reply-acks ---------------------------------------------------------------
 
 

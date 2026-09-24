@@ -122,7 +122,13 @@ class Core:
         self.bus.publish("station", with_distance(station, *self.my_position()))
 
         if fmt == "message":
-            self.messenger.handle(frame, pkt, tnc2, ts)
+            self.messenger.handle(str(frame.source), pkt, tnc2, ts)
+        elif fmt == "thirdparty":
+            # An iGate relaying from APRS-IS: "}WXBOT>APRS,TCPIP,IGATE*::ME :ack3".
+            # aprslib parses the inner packet; the peer is its sender.
+            inner = pkt.get("subpacket") or {}
+            if inner.get("format") == "message" and inner.get("from"):
+                self.messenger.handle(inner["from"].upper(), inner, inner.get("raw", ""), ts)
 
     # --- transmit path -----------------------------------------------------
 

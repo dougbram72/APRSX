@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING, Any
 from . import aprs
 
 if TYPE_CHECKING:
-    from .ax25 import Frame
     from .service import Core
 
 log = logging.getLogger(__name__)
@@ -121,10 +120,13 @@ class Messenger:
 
     # --- incoming ----------------------------------------------------------
 
-    def handle(self, frame: Frame, pkt: dict[str, Any], tnc2: str, ts: float) -> None:
-        """Handle a received message packet (aprslib format 'message')."""
+    def handle(self, peer: str, pkt: dict[str, Any], tnc2: str, ts: float) -> None:
+        """Handle a received message packet (aprslib format 'message').
+
+        ``peer`` is the sender. For a third-party packet it is the inner
+        sender, and ``pkt``/``tnc2`` are the inner packet.
+        """
         me = self.core.config.station
-        peer = str(frame.source)
         if pkt.get("addresse", "").strip().upper() != me or peer == me:
             return
 
