@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>APRS-X</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>APRS-X <span id="station" class="call"></span></h1>
+    <div class="status">
+      <span id="link" class="pill bad">Connecting…</span>
+      <span id="tnc" class="pill">TNC —</span>
+      <span id="rx" class="pill">0 rx</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel">
+      <h2>Stations heard <span id="station-count" class="count"></span></h2>
+      <div class="scroll">
+        <table id="stations">
+          <thead>
+            <tr><th>Station</th><th>Heard</th><th class="num">Dist</th><th class="num">Brg</th><th>Via</th><th>Comment</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <p id="stations-empty" class="empty">No stations heard yet.</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Live packets</h2>
+      <div class="scroll">
+        <ol id="packets"></ol>
+        <p id="packets-empty" class="empty">Waiting for packets…</p>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
