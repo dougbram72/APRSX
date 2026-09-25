@@ -130,8 +130,8 @@ ApplicationWindow {
         BigButton {
             width: bar.cellW; height: bar.height
             text: "Beacon"
-            // Manual beaconing arrives in phase 5; the core will report when it can beacon.
             enabled: !!core.status.can_beacon
+            onClicked: core.beacon()
         }
         BigButton {
             width: bar.cellW; height: bar.height

@@ -48,6 +48,8 @@ class Config(BaseModel):
     # Used when there is no GPS fix.
     fixed_lat: float | None = Field(None, ge=-90, le=90)
     fixed_lon: float | None = Field(None, ge=-180, le=180)
+    # Timed beacons when there's no GPS fix or SmartBeaconing is off; 0 = manual only.
+    beacon_interval_s: int = Field(1800, ge=0)
 
     direwolf_host: str = "127.0.0.1"
     direwolf_kiss_port: int = 8001
@@ -132,6 +134,13 @@ class Config(BaseModel):
         v = v.strip()
         if v and not _DW_VALUE_RE.match(v):
             raise ValueError("letters, digits and _:=,./+- only, on one line")
+        return v
+
+    @field_validator("beacon_interval_s")
+    @classmethod
+    def _check_interval(cls, v: int) -> int:
+        if 0 < v < 60:
+            raise ValueError("at least 60 seconds, or 0 for manual beacons only")
         return v
 
     @field_validator("beacon_comment", "status_text")

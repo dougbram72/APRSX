@@ -153,6 +153,19 @@ class CoreClient(QObject):
 
         self._request("POST", "/api/messages", {"to": to, "text": text}, done)
 
+    @Slot()
+    def beacon(self) -> None:
+        def done(status: int | None, data: Any) -> None:
+            if status == 200:
+                self.toast.emit("Beacon sent")
+            elif status is None:
+                self.toast.emit("Core not reachable")
+            else:
+                detail = data.get("detail") if isinstance(data, dict) else None
+                self.toast.emit(f"No beacon: {detail or status}")
+
+        self._request("POST", "/api/beacon", {}, done)
+
     @Slot(str)
     def markRead(self, peer: str) -> None:
         self._mark_read_locally(peer)

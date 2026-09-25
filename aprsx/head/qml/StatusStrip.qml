@@ -86,11 +86,13 @@ Rectangle {
         anchors.verticalCenter: parent.verticalCenter
         spacing: Theme.gap
 
-        // GPS, APRS-IS and beacon state arrive with phases 5 and 7.
+        // GPS: green with a fix, amber while gpsd is up but searching.
         Pill {
             anchors.verticalCenter: parent.verticalCenter
-            label: core.status.gps_fix ? "GPS" : "GPS –"
-            tone: core.status.gps_fix ? Theme.good : Theme.muted
+            label: core.status.gps_fix ? "GPS " + (core.status.gps.mode === 3 ? "3D" : "2D")
+                                       : "GPS –"
+            tone: core.status.gps_fix ? Theme.good
+                  : core.status.gps_connected ? Theme.accent : Theme.muted
         }
         Pill {
             anchors.verticalCenter: parent.verticalCenter

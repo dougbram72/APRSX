@@ -1,0 +1,7 @@
+# /etc/default/gpsd for APRS-X: the UART GPS HAT only.
+# USBAUTO must stay off, or gpsd probes the Digirig's CP2102 (PTT) and the
+# FTM-200's SCU-66 cable and can disturb them.
+DEVICES="/dev/serial0"
+# -n: read the GPS even with no clients, so a fix is ready when the core connects.
+GPSD_OPTIONS="-n"
+USBAUTO="false"

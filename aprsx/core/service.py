@@ -9,9 +9,11 @@ from collections.abc import Callable
 from typing import Any
 
 from . import aprs, aprsis, ax25
+from .beacon import Scheduler
 from .config import Config
 from .direwolf import ApplyResult, DirewolfManager, needs_restart
 from .events import EventBus
+from .gps import Fix, GpsdClient
 from .kiss import KissTcpClient
 from .messaging import Messenger
 from .stations import station_record, with_distance
@@ -22,6 +24,15 @@ log = logging.getLogger(__name__)
 PACKET_LOG_KEEP = 5000
 PRUNE_INTERVAL_S = 600
 MESSAGE_TICK_S = 1
+BEACON_TICK_S = 1
+# The first automatic beacon waits this long, for the TNC, APRS-IS and a GPS fix.
+BEACON_STARTUP_DELAY_S = 60
+# After an automatic beacon fails to go out, try again this much later.
+BEACON_RETRY_S = 30
+# While the fix state is unchanged, GPS updates go out as status events this often.
+GPS_STATUS_S = 5
+KNOTS_PER_MS = 1.943844
+FEET_PER_M = 3.280840
 
 
 class Core:
@@ -49,6 +60,11 @@ class Core:
         self._gated = aprsis.Deduper(aprsis.GATE_DUPE_S, clock)
         self._is_tx_limit = aprsis.RateLimiter(clock=clock)
         self.gated = {"rf_to_is": 0, "is_to_rf": 0}
+        self.gps = GpsdClient(self.config.gpsd_host, self.config.gpsd_port,
+                              on_update=self._gps_update, clock=clock)
+        self._gps_published: tuple[bool, bool, float] = (False, False, 0.0)
+        self.beacons = Scheduler()
+        self.last_beacon: float | None = None
         self._tasks: list[asyncio.Task] = []
 
     # --- lifecycle ---------------------------------------------------------
@@ -56,10 +72,13 @@ class Core:
     async def start(self) -> None:
         if self.config.direwolf_managed and self.direwolf and not self.direwolf.conf_path.exists():
             self.direwolf.write(self.config)  # first boot: the unit needs a config
+        self.beacons.hold(self.clock() + BEACON_STARTUP_DELAY_S)
         self._tasks = [
             asyncio.create_task(self.kiss.run(), name="kiss"),
             asyncio.create_task(self._prune_loop(), name="prune"),
             asyncio.create_task(self._message_loop(), name="messages"),
+            asyncio.create_task(self.gps.run(), name="gps"),
+            asyncio.create_task(self._beacon_loop(), name="beacon"),
         ]
         self._sync_aprsis()
 
@@ -101,11 +120,31 @@ class Core:
                 log.exception("message retry tick failed")
             await asyncio.sleep(MESSAGE_TICK_S)
 
+    async def _beacon_loop(self) -> None:
+        while True:
+            try:
+                self.beacon_tick()
+            except Exception:
+                log.exception("beacon tick failed")
+            await asyncio.sleep(BEACON_TICK_S)
+
     # --- state -------------------------------------------------------------
 
     def my_position(self) -> tuple[float | None, float | None]:
-        # Phase 5 replaces this with the GPS fix when there is one.
+        """The GPS fix when there is one, else the fixed position (or None, None)."""
+        if fix := self.gps.current():
+            return fix.lat, fix.lon
         return self.config.fixed_lat, self.config.fixed_lon
+
+    def can_beacon(self) -> bool:
+        return self.config.callsign != "N0CALL" and None not in self.my_position()
+
+    def gps_status(self) -> dict[str, Any] | None:
+        fix = self.gps.current()
+        if fix is None:
+            return None
+        return {"mode": fix.mode, "lat": fix.lat, "lon": fix.lon, "alt_m": fix.alt_m,
+                "speed_kmh": fix.speed_kmh, "course": fix.course, "sats": self.gps.sats_used}
 
     def status(self) -> dict[str, Any]:
         return {
@@ -124,6 +163,11 @@ class Core:
             "unread": self.store.unread_count(),
             "uptime_s": round(time.time() - self.started),
             "position": dict(zip(("lat", "lon"), self.my_position())),
+            "gps_connected": self.gps.connected,
+            "gps_fix": self.gps.current() is not None,
+            "gps": self.gps_status(),
+            "can_beacon": self.can_beacon(),
+            "last_beacon": self.last_beacon,
         }
 
     def stations(self) -> list[dict[str, Any]]:
@@ -136,6 +180,7 @@ class Core:
         self.store.save_config(new)
         self.config = new
         self.kiss.set_address(new.direwolf_host, new.direwolf_kiss_port)
+        self.gps.set_address(new.gpsd_host, new.gpsd_port)
         result = None
         if new.direwolf_managed and self.direwolf and needs_restart(old, new):
             result = await self.direwolf.apply(new)
@@ -153,6 +198,67 @@ class Core:
 
     def _publish_status(self) -> None:
         self.bus.publish("status", self.status())
+
+    def _gps_update(self) -> None:
+        """Publish GPS changes: at once when the link or fix comes or goes,
+        otherwise every GPS_STATUS_S (gpsd reports every second)."""
+        connected, has_fix = self.gps.connected, self.gps.current() is not None
+        was_connected, had_fix, last = self._gps_published
+        now = self.clock()
+        if (connected, has_fix) != (was_connected, had_fix) or (
+                has_fix and now - last >= GPS_STATUS_S):
+            self._gps_published = (connected, has_fix, now)
+            self._publish_status()
+
+    # --- beaconing ---------------------------------------------------------
+
+    def beacon_tick(self) -> None:
+        """Send an automatic beacon if one is due. Called every second."""
+        self._gps_update()  # notices a fix going stale without new reports
+        if not self.can_beacon():
+            return
+        now = self.clock()
+        fix = self.gps.current()
+        sb = self.config.smartbeacon
+        if fix and sb.enabled:
+            due = self.beacons.due_smart(sb, now, fix.speed_kmh, fix.course)
+        else:
+            due = self.beacons.due_fixed(self.config.beacon_interval_s, now)
+        if due and not self.beacon():
+            self.beacons.hold(now + BEACON_RETRY_S)
+
+    def beacon(self) -> bool:
+        """Send our position now: the GPS fix (with course, speed and altitude
+        when known), else the fixed position. True if it went out."""
+        if not self.can_beacon():
+            return False
+        c = self.config
+        fix = self.gps.current()
+        now = self.clock()
+        info = aprs.encode.position(*self.my_position(), **self._motion(fix, c),
+                                    symbol_table=c.symbol_table, symbol=c.symbol,
+                                    comment=c.beacon_comment)
+        if not self.transmit(info):
+            return False
+        self.beacons.sent(now, fix.course if fix else None)
+        self.last_beacon = now
+        self._publish_status()
+        return True
+
+    @staticmethod
+    def _motion(fix: Fix | None, c: Config) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        if fix is None:
+            return out
+        # A parked GPS drifts a few km/h on a random course; below the
+        # SmartBeacon slow speed, send a plain position instead.
+        if (fix.course is not None and fix.speed_ms is not None
+                and fix.speed_kmh >= c.smartbeacon.slow_speed_kmh):
+            out["course"] = round(fix.course)
+            out["speed_knots"] = fix.speed_ms * KNOTS_PER_MS
+        if fix.alt_m is not None:
+            out["altitude_ft"] = fix.alt_m * FEET_PER_M
+        return out
 
     # --- receive path ------------------------------------------------------
 

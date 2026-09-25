@@ -4,6 +4,7 @@ REST:  GET  /api/status, /api/config, /api/packets?limit=&before=, /api/stations
        GET  /api/messages?peer=&limit=&before=, /api/conversations
        POST /api/messages {to, text}         -> queued outgoing message       [auth]
        POST /api/messages/read {peer}        -> mark a conversation read
+       POST /api/beacon                      -> send a position beacon now    [auth]
        PUT  /api/config {settings..., admin_password?} -> save and apply  [auth]
             (fields left out keep their values; nested groups merge)
        GET  /api/session; POST /api/login {password}; POST /api/logout
@@ -220,6 +221,16 @@ def create_app(core: Core, run_core: bool = True, tiles_dir: Path | None = None)
         if core.store.mark_read(peer):
             core.bus.publish("read", {"peer": peer, "unread": core.store.unread_count()})
         return {"peer": peer, "unread": core.store.unread_count()}
+
+    @app.post("/api/beacon", dependencies=[Depends(require_auth)])
+    def beacon():
+        if core.config.callsign == "N0CALL":
+            raise HTTPException(409, "set your callsign first")
+        if not core.can_beacon():
+            raise HTTPException(409, "no position: no GPS fix and no fixed position set")
+        if not core.beacon():
+            raise HTTPException(503, "not sent: no TNC or APRS-IS connection")
+        return {"sent": True, "last_beacon": core.last_beacon}
 
     @app.get("/api/conversations")
     def conversations():
