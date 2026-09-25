@@ -33,13 +33,18 @@ database (`~/.local/share/aprsx/aprsx.db`).
 
 ## What it sets up
 
-- **Packages:** `direwolf`, `gpsd`, `gpsd-clients`, `python3-venv`, `git`, `rsync`, and
+- **Packages:** `direwolf`, `gpsd`, `gpsd-clients`, `python3-venv`, `git`, `rsync`, `alsa-utils`, and
   for the head unit Debian's PySide6/Qt 6 packages (`deploy/head-apt-packages.txt`).
 - **Core:** a venv at `~/aprsx/.venv` with the `aprsx` package installed, with the
   `mesh` extra (the `meshcore` library, for a MeshCore companion radio on USB).
 - **gpsd:** `/etc/default/gpsd` from `deploy/gpsd.default` (GPS on `/dev/serial0`,
   USB auto-probing off so it leaves the Digirig and SCU-66 alone). The original is
   kept as `/etc/default/gpsd.pre-aprsx`.
+- **Digirig audio** (first run, when the Digirig is plugged in): turns off the sound
+  chip's Auto Gain Control and sets Mic Capture Volume to 19, then saves the mixer with
+  `alsactl store` so it survives power cuts. With AGC on, Direwolf sees a receive level
+  of about 200 even with the radio turned down. After that, adjust the level yourself
+  (see *Receive audio level*); re-running the installer leaves it alone.
 - **WirePlumber** (desktop image): a rule so PipeWire leaves the Digirig's sound card
   to Direwolf.
 - **Power button:** `/etc/sudoers.d/aprsx-power` lets the core run `systemctl poweroff`
@@ -69,6 +74,18 @@ sudo journalctl _SYSTEMD_USER_UNIT=aprsx-core.service -f   # when the user journ
 `aprsx-config KEY=VALUE ...` changes settings from the shell (e.g. `ssid=7`,
 `aprsis.enabled=true`). Stop `aprsx-core` first, or the running core will overwrite
 the change on its next save.
+
+## Receive audio level
+
+Direwolf prints `audio level = N` for each packet it decodes; aim for about 50 on
+strong local stations. Set the radio's volume first (about a third to half on a UV-5R
+works well with the installer's level), then fine-tune the Digirig's capture gain:
+
+```bash
+journalctl -f -o cat _SYSTEMD_USER_UNIT=aprsx-direwolf.service | grep "audio level"
+amixer -c Device cset name='Mic Capture Volume' 19   # 0-35, 1 dB per step
+sudo alsactl store                                   # keep it after a power cut
+```
 
 ## MeshCore radio (optional)
 

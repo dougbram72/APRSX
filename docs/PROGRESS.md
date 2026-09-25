@@ -5,7 +5,7 @@ into work packages (WPs). Tick a box when the WP is done and verified. Record an
 departure from DESIGN.md, and any choice DESIGN.md left open, in the decision log at
 the bottom.
 
-**Status (2026-09-24):** phases 1–7 done. Phase 8 (packaging): units, installer and boot setup done and checked on the test Pi; the fresh-SD-card test (WP8.4) is still to do. Phase 9 (FTM-200D backend) is next. Phase 10 (MeshCore + war-driving) is built and tested against a fake device; the hardware check (WP10.1) and a road test (WP10.9) are still to do.
+**Status (2026-09-25):** phases 1–8 done (the fresh-SD-card test passed on Pi OS Lite). Phase 9 (FTM-200D backend) is next. Phase 10 (MeshCore + war-driving) is built and tested against a fake device; the hardware check (WP10.1) and a road test (WP10.9) are still to do.
 
 ---
 
@@ -85,11 +85,11 @@ the bottom.
 
 ## Phase 8: Packaging
 
-- [ ] **Phase 8 complete**
+- [x] **Phase 8 complete**
 - [x] WP8.1 systemd units: `direwolf`, `gpsd`, `aprsx-core`, `aprsx-head`, with ordering
 - [x] WP8.2 Install script for a fresh SD card (one command): `deploy/install.sh`
 - [x] WP8.3 Boot config notes/automation (UART, DSI, eglfs): `docs/INSTALL.md`
-- [ ] WP8.4 Fresh-install test on the Pi
+- [x] WP8.4 Fresh-install test on the Pi: Pi OS Lite, one curl command, everything came up after a reboot; eglfs head unit with working touch (2026-09-25)
 - [x] WP8.5 Safe shutdown: ⏻ button on the head unit (Shut down / Restart), `POST /api/system/power`, sudoers rule from the installer. Shut down and restart tested on the Pi (2026-09-24), both clean.
 
 ## Phase 9: Yaesu FTM-200D radio backend
@@ -132,6 +132,13 @@ and APRS-IS: messages, nodes heard, and war-driving for a coverage map.
 ## Decision log
 
 Newest first. Note the date, the phase/WP, what was decided, and why.
+
+### 2026-09-25: Fresh-SD-card test (WP8.4)
+
+- **Pi OS Lite (trixie, 64-bit) on the test Pi, set up only by the documented one-line `curl … | bash -s -- --callsign KF0KBP-7`** from GitHub `main` (77f32aa). It installed packages, the venv, gpsd, boot changes (`enable_uart=1`, `disable-bt`, serial console removed), the power-button sudoers rule, the units and lingering, and chose eglfs for the head unit. After a reboot, gpsd (3D fix), Direwolf (managed, PTT on the Digirig), the core, APRS-IS, MeshCore (Heltec found by itself) and the head unit all came up on their own. Touch works under eglfs. A message to WXBOT was acked.
+- **The Digirig's mixer defaults overdrive Direwolf.** Its C-Media chip starts with Auto Gain Control on, which gave receive levels of about 200 with the UV-5R under half volume. AGC off and Mic Capture Volume 19 (+7 dB) gives 45–50. With AGC off, −4 dB gave only 14, so AGC was most of the gain. **The installer now sets this once** (marker `~/.config/aprsx/digirig-mixer-set`, so later runs keep hand-tuned levels) and runs `sudo alsactl store`. Debian only saves the mixer at a clean shutdown, and a car's power just drops. `alsa-utils` was added to the package list.
+- **A fresh install beacons as soon as the GPS gets a fix after the first reboot.** One beacon went out before we paused beacons. INSTALL.md already warns about this; left as is.
+- **Fresh Pi OS images ask for a sudo password** (the imager no longer adds a NOPASSWD rule), so the installer is run from an interactive terminal. That's expected; the user added a rule on the test Pi afterwards for remote work.
 
 ### 2026-09-25: Status page
 

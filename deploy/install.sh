@@ -52,7 +52,7 @@ sudo true  # ask for the password once, up front
 say "Installing packages"
 sudo apt-get update -q
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q \
-    direwolf gpsd gpsd-clients python3-venv git rsync
+    direwolf gpsd gpsd-clients python3-venv git rsync alsa-utils
 
 # --- code -------------------------------------------------------------------
 say "Installing APRS-X in $APP_DIR"
@@ -130,6 +130,22 @@ if [ -d /usr/share/wireplumber ]; then
     install -m 644 deploy/wireplumber-disable-digirig.conf \
         ~/.config/wireplumber/wireplumber.conf.d/51-disable-digirig.conf
     systemctl --user restart wireplumber 2>/dev/null || true
+fi
+
+# --- audio: Digirig mixer ----------------------------------------------------
+# Its C-Media chip starts with Auto Gain Control on, which overdrives Direwolf
+# (receive level ~200, target ~50). Set a starting level once and save it, so it
+# survives power cuts; later runs leave levels tuned by hand alone.
+MIXER_DONE=~/.config/aprsx/digirig-mixer-set
+DIGIRIG_CARD=$(grep -B1 'C-Media' /proc/asound/cards 2>/dev/null \
+    | sed -n 's/^ *\([0-9]\{1,\}\) \[.*/\1/p' | head -n1 || true)
+if [ -n "$DIGIRIG_CARD" ] && [ ! -f $MIXER_DONE ]; then
+    say "Digirig audio: AGC off, starting capture level"
+    amixer -q -c "$DIGIRIG_CARD" cset name='Auto Gain Control' off || true
+    amixer -q -c "$DIGIRIG_CARD" cset name='Mic Capture Volume' 19 || true
+    sudo alsactl store
+    mkdir -p ~/.config/aprsx
+    touch $MIXER_DONE
 fi
 
 # --- power button ------------------------------------------------------------
