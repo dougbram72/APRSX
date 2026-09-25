@@ -103,3 +103,18 @@ async def test_client_against_fake_gpsd():
     assert states[0] == (True, False)
     assert (True, True) in states
     assert states[-1] == (False, False)
+
+
+def test_untrusted_fixes_are_ignored():
+    clock = Clock()
+    c = GpsdClient("h", 1, clock=clock)
+    c.handle_line(json.dumps(TPV_3D))
+    assert c.current() is not None  # satellite count not known yet
+    c.handle_line(json.dumps({"class": "SKY", "nSat": 15, "uSat": 3}))
+    assert c.current() is None  # a 3-satellite solution
+    c.handle_line(json.dumps({"class": "SKY", "nSat": 15, "uSat": 7}))
+    assert c.current() is not None
+    c.handle_line(json.dumps({**TPV_3D, "speed": 103.0}))  # ~200 knots
+    assert c.current() is None
+    c.handle_line(json.dumps({**TPV_3D, "speed": 30.0}))  # 108 km/h is fine
+    assert c.current() is not None

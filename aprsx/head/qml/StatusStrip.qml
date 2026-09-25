@@ -1,9 +1,11 @@
 import QtQuick
 
-// Top strip: station, link/TNC state, RX/TX lights, GPS, APRS-IS, clock, unread.
+// Top strip: station, link/TNC state, RX/TX lights, GPS, APRS-IS, MeshCore, clock, unread, power.
 Rectangle {
     id: strip
     color: Theme.panel
+    signal powerRequested()
+    signal meshRequested()
 
     function flash(light) { light.opacity = 1; light.fade.restart() }
 
@@ -99,6 +101,21 @@ Rectangle {
             label: "IS"
             tone: core.status.aprsis_connected ? Theme.good : Theme.muted
         }
+        // MeshCore: tap for messages and war-driving. Amber while war-driving.
+        Pill {
+            id: meshPill
+            readonly property var mesh: core.status.mesh || ({})
+            anchors.verticalCenter: parent.verticalCenter
+            visible: !!mesh.enabled
+            label: "MESH" + (mesh.unread ? " ✉" + mesh.unread : "")
+            tone: !mesh.connected ? Theme.bad
+                  : mesh.wardrive && mesh.wardrive.active ? Theme.accent : Theme.good
+            MouseArea {
+                anchors.fill: parent
+                anchors.margins: -Theme.gap / 2   // easier to hit
+                onClicked: strip.meshRequested()
+            }
+        }
         Text {
             anchors.verticalCenter: parent.verticalCenter
             visible: !!core.status.last_beacon
@@ -128,6 +145,34 @@ Rectangle {
             color: Theme.text
             font.pixelSize: Theme.large
             font.bold: true
+        }
+        BigButton {
+            id: powerButton
+            anchors.verticalCenter: parent.verticalCenter
+            height: strip.height - Theme.gap
+            width: height * 1.2
+            onClicked: strip.powerRequested()
+            // Power symbol, drawn: the Pi's fonts have no U+23FB glyph.
+            Canvas {
+                anchors.centerIn: parent
+                width: parent.height * 0.5
+                height: width
+                onPaint: {
+                    const ctx = getContext("2d"), r = width / 2, lw = Math.max(2, width / 9)
+                    ctx.reset()
+                    ctx.strokeStyle = Theme.text
+                    ctx.lineWidth = lw
+                    ctx.lineCap = "round"
+                    ctx.beginPath()
+                    ctx.arc(r, r, r - lw, -Math.PI / 2 + 0.7, 1.5 * Math.PI - 0.7)
+                    ctx.stroke()
+                    ctx.beginPath()
+                    ctx.moveTo(r, lw / 2)
+                    ctx.lineTo(r, r)
+                    ctx.stroke()
+                }
+                onWidthChanged: requestPaint()
+            }
         }
     }
 }

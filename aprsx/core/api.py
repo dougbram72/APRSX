@@ -9,15 +9,33 @@ REST:  GET  /api/status, /api/config, /api/packets?limit=&before=, /api/stations
             (fields left out keep their values; nested groups merge)
        GET  /api/session; POST /api/login {password}; POST /api/logout
        GET  /api/system/devices              -> sound cards and serial ports
+       GET  /api/system/status               -> Pi health, GPS detail, audio levels, links
+       POST /api/system/power {action}       -> "shutdown" or "reboot" the Pi [auth]
        GET  /api/aprsis/passcode?callsign=   -> APRS-IS passcode
        GET  /api/direwolf.conf               -> the config Direwolf gets
        GET  /tiles/{z}/{x}/{y}.png           -> map tiles (see tiles.py)
+MeshCore (see mesh.py, wardrive.py); conv is 'dm:<pubkey prefix>' or 'ch:<index>':
+       GET  /api/mesh/nodes, /api/mesh/channels, /api/mesh/conversations
+       GET  /api/mesh/messages?conv=&limit=&before=
+       POST /api/mesh/messages {conv, text}  -> send a DM or channel message  [auth]
+       POST /api/mesh/messages/read {conv}   -> mark a conversation read
+       POST /api/mesh/advert {flood}         -> send our advert now            [auth]
+       POST /api/wardrive/start, /api/wardrive/stop                           [auth]
+       GET  /api/wardrive/sessions, /api/wardrive/sessions/{id}?rx=
+       GET  /api/wardrive/sessions/{id}/export?fmt=geojson|csv|gpx
+       GET  /api/wardrive/coverage?session= -> pings and answers, for the map
 [auth]: needs a session when a settings password is set, except from loopback.
 WS:    /ws  -> {"type": ..., "data": {...}} where type is
        status | packet | station
        message  a new message row (in or out)
        ack      an outgoing message changed (tries, or acked/rejected/failed)
        read     {peer, unread}: a conversation was marked read
+       power    {action, error?}: the Pi is shutting down / rebooting (or failed to)
+       mesh_message  a MeshCore message row (in or out); mesh_ack  an outgoing one changed
+       mesh_read     {conv, unread}; mesh_node  a node row; mesh_nodes  contacts were synced
+       wardrive      session state and counters
+       wardrive_ping a ping row (sent, and again when its answer window closes)
+       wardrive_obs  an answer to a ping, with the node's name and position
 Message events carry the full row; clients upsert by id.
 """
 
@@ -26,9 +44,10 @@ from __future__ import annotations
 import asyncio
 import glob
 import re
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import (Body, Depends, FastAPI, HTTPException, Query, Request, Response,
                      WebSocket, WebSocketDisconnect)
@@ -36,10 +55,13 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import aprsis, auth, direwolf
+from . import aprsis, auth, direwolf, wardrive
+from .sysinfo import SysInfo
 from .config import Config
+from .meshlink import MeshError
 from .messaging import MessageError
 from .service import Core
+from .stations import with_distance
 from .tiles import TileServer, media_type
 
 WEB_DIR = Path(__file__).parent / "web"
@@ -53,6 +75,23 @@ class SendMessage(BaseModel):
 
 class MarkRead(BaseModel):
     peer: str
+
+
+class SendMesh(BaseModel):
+    conv: str
+    text: str
+
+
+class MeshRead(BaseModel):
+    conv: str
+
+
+class Advert(BaseModel):
+    flood: bool = False
+
+
+class Power(BaseModel):
+    action: Literal["shutdown", "reboot"]
 
 
 class Login(BaseModel):
@@ -90,6 +129,7 @@ def list_devices() -> dict[str, list[dict[str, str]]]:
 def create_app(core: Core, run_core: bool = True, tiles_dir: Path | None = None) -> FastAPI:
     """Build the app. run_core=False leaves starting the radio link to the caller (tests)."""
     sessions = auth.Sessions()
+    sysinfo = SysInfo()
     tiles = TileServer(tiles_dir or Path("tiles"), online=lambda: core.config.tiles_online)
 
     def authenticated(request: Request) -> bool:
@@ -184,6 +224,30 @@ def create_app(core: Core, run_core: bool = True, tiles_dir: Path | None = None)
     def devices():
         return list_devices()
 
+    @app.get("/api/system/status")
+    async def system_status():
+        c = core.config
+        return {
+            "pi": await sysinfo.collect(),
+            "gps": core.gps.detail(),
+            "audio": core.audio.status(),
+            "links": {
+                "kiss": core.kiss.connected,
+                "direwolf_managed": c.direwolf_managed,
+                "direwolf_error": core.direwolf_error,
+                "aprsis": {"enabled": c.aprsis.enabled, "connected": core.aprsis.connected,
+                           "verified": core.aprsis.verified, "server": core.aprsis.server},
+                "mesh": core.mesh.status(),
+            },
+            "counts": {"rx": core.rx_count, "tx": core.tx_count},
+            "uptime_s": round(time.time() - core.started),
+        }
+
+    @app.post("/api/system/power", status_code=202, dependencies=[Depends(require_auth)])
+    async def power(body: Power):
+        core.power(body.action)
+        return {"action": body.action}
+
     @app.get("/api/direwolf.conf", response_class=PlainTextResponse)
     def direwolf_conf():
         return direwolf.render(core.config)
@@ -235,6 +299,86 @@ def create_app(core: Core, run_core: bool = True, tiles_dir: Path | None = None)
     @app.get("/api/conversations")
     def conversations():
         return core.store.conversations()
+
+    @app.get("/api/mesh/nodes")
+    def mesh_nodes():
+        lat, lon = core.my_position()
+        return [with_distance(n, lat, lon) for n in core.store.list_mesh_nodes()]
+
+    @app.get("/api/mesh/channels")
+    def mesh_channels():
+        return core.mesh.channels
+
+    @app.get("/api/mesh/conversations")
+    def mesh_conversations():
+        return core.store.mesh_conversations()
+
+    @app.get("/api/mesh/messages")
+    def mesh_messages(conv: str | None = None, limit: int = Query(100, ge=1, le=1000),
+                      before: int | None = None):
+        return core.store.list_mesh_messages(conv.lower() if conv else None, limit, before)
+
+    @app.post("/api/mesh/messages", status_code=201, dependencies=[Depends(require_auth)])
+    async def send_mesh(body: SendMesh):
+        if not core.mesh.link.connected:
+            raise HTTPException(503, "MeshCore device not connected")
+        try:
+            return await core.mesh.send(body.conv, body.text)
+        except MeshError as e:
+            raise HTTPException(400, str(e)) from None
+
+    @app.post("/api/mesh/messages/read")
+    def mesh_read(body: MeshRead):
+        conv = body.conv.lower()
+        if core.store.mark_mesh_read(conv):
+            core.bus.publish("mesh_read", {"conv": conv, "unread": core.store.mesh_unread_count()})
+        return {"conv": conv, "unread": core.store.mesh_unread_count()}
+
+    @app.post("/api/mesh/advert", dependencies=[Depends(require_auth)])
+    async def mesh_advert(body: Advert = Body(Advert())):
+        try:
+            await core.mesh.advert(body.flood)
+        except MeshError as e:
+            raise HTTPException(503, str(e)) from None
+        return {"sent": True, "flood": body.flood}
+
+    @app.post("/api/wardrive/start", dependencies=[Depends(require_auth)])
+    def wardrive_start():
+        if not core.config.meshcore.enabled:
+            raise HTTPException(409, "turn MeshCore on in Settings first")
+        return core.mesh.wardrive.start()
+
+    @app.post("/api/wardrive/stop", dependencies=[Depends(require_auth)])
+    def wardrive_stop():
+        return core.mesh.wardrive.stop()
+
+    @app.get("/api/wardrive/sessions")
+    def wardrive_sessions():
+        return core.store.list_wd_sessions()
+
+    @app.get("/api/wardrive/sessions/{id}")
+    def wardrive_session(id: int, rx: bool = True):
+        if (s := wardrive.session(core.store, id, rx=rx)) is None:
+            raise HTTPException(404, "no such session")
+        return s
+
+    @app.get("/api/wardrive/sessions/{id}/export")
+    def wardrive_export(id: int, fmt: Literal["geojson", "csv", "gpx"] = "geojson"):
+        if (s := wardrive.session(core.store, id)) is None:
+            raise HTTPException(404, "no such session")
+        name = f"wardrive-{id}.{fmt}"
+        headers = {"Content-Disposition": f'attachment; filename="{name}"'}
+        if fmt == "csv":
+            return Response(wardrive.to_csv(s), media_type="text/csv", headers=headers)
+        if fmt == "gpx":
+            return Response(wardrive.to_gpx(s), media_type="application/gpx+xml",
+                            headers=headers)
+        return JSONResponse(wardrive.geojson(s), media_type="application/geo+json",
+                            headers=headers)
+
+    @app.get("/api/wardrive/coverage")
+    def wardrive_coverage(session: int | None = None):
+        return wardrive.coverage(core.store, session)
 
     @app.websocket("/ws")
     async def ws(websocket: WebSocket):

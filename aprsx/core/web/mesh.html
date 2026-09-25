@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>APRS-X Mesh</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>APRS-X <span id="station" class="call"></span></h1>
+    <nav>
+      <a href="./">Live</a>
+      <a href="chat.html">Messages <span id="nav-unread" class="badge"></span></a>
+      <a href="mesh.html" aria-current="page">Mesh <span id="nav-mesh-unread" class="badge"></span></a>
+      <a href="map.html">Map</a>
+      <a href="status.html">Status</a>
+      <a href="settings.html">Settings</a>
+    </nav>
+    <div class="status">
+      <span id="link" class="pill bad">Connecting…</span>
+      <span id="tnc" class="pill">TNC —</span>
+      <span id="is" class="pill hidden">APRS-IS</span>
+      <span id="gps" class="pill">GPS —</span>
+      <span id="mesh" class="pill hidden">Mesh</span>
+      <button id="beacon" class="small" disabled>Beacon</button>
+    </div>
+  </header>
+
+  <p id="mesh-off" class="panel hint hidden">MeshCore is off. Turn it on and pick the device on the
+    <a href="settings.html#meshcore">Settings</a> page.</p>
+
+  <main class="chat mesh">
+    <div class="stack">
+      <section class="panel" id="wardrive">
+        <h2>War-drive <button id="wd-toggle" type="button">Start</button></h2>
+        <p id="wd-state" class="hint">Not running.</p>
+        <dl class="counters">
+          <div><dt>Pings</dt><dd id="wd-pings">0</dd></div>
+          <div><dt>Heard</dt><dd id="wd-heard">0</dd></div>
+          <div><dt>Nodes</dt><dd id="wd-nodes">0</dd></div>
+          <div><dt>RX</dt><dd id="wd-rx">0</dd></div>
+        </dl>
+        <ol id="wd-answers" class="answers"></ol>
+        <p id="node-name" class="hint"></p>
+        <div class="canned">
+          <button id="advert" type="button" class="small">Advert</button>
+          <button id="advert-flood" type="button" class="small">Flood advert</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Conversations</h2>
+        <div class="scroll short">
+          <ul id="convs"></ul>
+          <p id="convs-empty" class="empty">No channels or messages yet.</p>
+        </div>
+      </section>
+    </div>
+
+    <section class="panel thread-panel">
+      <h2 id="thread-title">Pick a channel or node</h2>
+      <div id="thread-scroll" class="scroll thread-scroll">
+        <ol id="thread"></ol>
+      </div>
+      <form id="compose" autocomplete="off">
+        <input id="text" name="text" placeholder="Message" maxlength="140" required disabled>
+        <span id="counter" class="counter">140</span>
+        <button type="submit" disabled>Send</button>
+      </form>
+      <p id="error" class="error hidden"></p>
+    </section>
+
+    <section class="panel wide">
+      <h2>Nodes heard <span id="nodes-count" class="count"></span></h2>
+      <div class="scroll short">
+        <table>
+          <thead><tr><th>Name</th><th>Type</th><th>SNR</th><th>RSSI</th><th>Hops</th>
+            <th>Distance</th><th>Heard</th><th></th></tr></thead>
+          <tbody id="nodes"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel wide">
+      <h2>War-drive sessions</h2>
+      <div class="scroll short">
+        <table>
+          <thead><tr><th>Started</th><th>Length</th><th>Pings</th><th>Heard</th><th>Nodes</th>
+            <th>Export</th></tr></thead>
+          <tbody id="sessions"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="common.js"></script>
+  <script src="mesh.js"></script>
+</body>
+</html>

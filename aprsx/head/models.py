@@ -130,7 +130,10 @@ class RowModel(QAbstractListModel):
 
 
 MESSAGE_ROLES = ("id", "ts", "direction", "peer", "text", "msgno", "state", "tries", "read")
-CARD_ROLES = MESSAGE_ROLES + ("parts", "last_id", "last_ts")
+# kind is "aprs" or "mesh"; key is unique across both. Mesh cards add conv
+# (to reply and mark read), where (channel name, "" for a DM), snr and hops.
+CARD_ROLES = MESSAGE_ROLES + ("parts", "last_id", "last_ts",
+                              "kind", "key", "conv", "where", "snr", "hops")
 STATION_ROLES = ("name", "is_object", "last_heard", "heard_direct", "path", "lat", "lon",
                  "symbol_table", "symbol", "channel",
                  "comment", "distance_km", "bearing", "speed_kmh", "course")
@@ -142,10 +145,20 @@ def message_model(parent=None) -> RowModel:
 
 
 def card_model(parent=None) -> RowModel:
-    """Carousel cards (see grouping.py), newest part first."""
-    return RowModel(CARD_ROLES, "id", lambda c: -c["last_id"], parent)
+    """Carousel cards, APRS (see grouping.py) and MeshCore, newest part first."""
+    return RowModel(CARD_ROLES, "key", lambda c: (-c["last_ts"], -c["last_id"], c["key"]),
+                    parent)
 
 
 def station_model(parent=None) -> RowModel:
     """Most recently heard station first."""
     return RowModel(STATION_ROLES, "name", lambda s: -s["last_heard"], parent)
+
+
+MESH_MESSAGE_ROLES = ("id", "ts", "direction", "conv", "sender", "text", "state", "attempts",
+                      "snr", "hops", "read")
+
+
+def mesh_message_model(parent=None) -> RowModel:
+    """MeshCore messages, newest first."""
+    return RowModel(MESH_MESSAGE_ROLES, "id", lambda m: -m["id"], parent)

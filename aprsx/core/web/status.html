@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>APRS-X Status</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>APRS-X <span id="station" class="call"></span></h1>
+    <nav>
+      <a href="./">Live</a>
+      <a href="chat.html">Messages <span id="nav-unread" class="badge"></span></a>
+      <a href="mesh.html">Mesh <span id="nav-mesh-unread" class="badge"></span></a>
+      <a href="map.html">Map</a>
+      <a href="status.html" aria-current="page">Status</a>
+      <a href="settings.html">Settings</a>
+    </nav>
+    <div class="status">
+      <span id="link" class="pill bad">Connecting…</span>
+      <span id="tnc" class="pill">TNC —</span>
+      <span id="is" class="pill hidden">APRS-IS</span>
+      <span id="gps" class="pill">GPS —</span>
+      <span id="mesh" class="pill hidden">Mesh</span>
+      <button id="beacon" class="small" disabled>Beacon</button>
+    </div>
+  </header>
+
+  <main class="status-page">
+    <section class="panel">
+      <h2>Raspberry Pi <span id="pi-host" class="count"></span></h2>
+      <div id="power" class="alert hidden"></div>
+      <dl id="pi" class="kv"></dl>
+      <h3>Services</h3>
+      <ul id="services" class="chips"></ul>
+    </section>
+
+    <section class="panel">
+      <h2>Links</h2>
+      <dl id="links" class="kv"></dl>
+    </section>
+
+    <section class="panel wide">
+      <h2>GPS</h2>
+      <p id="gps-state" class="state"></p>
+      <div class="split">
+        <dl id="gps-kv" class="kv"></dl>
+        <div>
+          <div id="sky" class="sky" aria-label="Satellite signal strengths"></div>
+          <p class="hint">Signal per satellite (dB-Hz); filled bars are used in the fix. With a clear view of the sky, expect several above 35.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel wide">
+      <h2>Receive audio (Digirig → Direwolf)</h2>
+      <p id="audio-state" class="state"></p>
+      <div class="split">
+        <div>
+          <div class="meter-label">Packet level <b id="median"></b> <span class="hint">(median of recent packets; aim for about 50)</span></div>
+          <div class="meter"><div class="band"></div><div id="median-bar" class="needle"></div></div>
+          <div class="meter-label">Noise level <b id="noise"></b> <span id="noise-meta" class="hint"></span></div>
+          <div class="meter"><div id="noise-bar" class="fill"></div></div>
+        </div>
+        <div class="scroll short">
+          <table>
+            <thead><tr><th>Time</th><th>Station</th><th>Heard via</th><th>Level</th><th>Mark/Space</th></tr></thead>
+            <tbody id="packets"></tbody>
+          </table>
+          <p id="packets-empty" class="empty">No packets decoded yet.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="common.js"></script>
+  <script src="status.js"></script>
+</body>
+</html>

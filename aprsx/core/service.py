@@ -9,12 +9,14 @@ from collections.abc import Callable
 from typing import Any
 
 from . import aprs, aprsis, ax25
+from .audiomon import AudioMonitor
 from .beacon import Scheduler
 from .config import Config
 from .direwolf import ApplyResult, DirewolfManager, needs_restart
 from .events import EventBus
 from .gps import Fix, GpsdClient
 from .kiss import KissTcpClient
+from .mesh import MeshService
 from .messaging import Messenger
 from .stations import station_record, with_distance
 from .store import Store
@@ -25,6 +27,7 @@ PACKET_LOG_KEEP = 5000
 PRUNE_INTERVAL_S = 600
 MESSAGE_TICK_S = 1
 BEACON_TICK_S = 1
+MESH_TICK_S = 1
 # The first automatic beacon waits this long, for the TNC, APRS-IS and a GPS fix.
 BEACON_STARTUP_DELAY_S = 60
 # After an automatic beacon fails to go out, try again this much later.
@@ -33,6 +36,9 @@ BEACON_RETRY_S = 30
 GPS_STATUS_S = 5
 KNOTS_PER_MS = 1.943844
 FEET_PER_M = 3.280840
+# A power-off waits this long so the HTTP reply and the "power" event reach clients.
+POWER_DELAY_S = 1.0
+POWER_COMMANDS = {"shutdown": "poweroff", "reboot": "reboot"}
 
 
 class Core:
@@ -65,7 +71,12 @@ class Core:
         self._gps_published: tuple[bool, bool, float] = (False, False, 0.0)
         self.beacons = Scheduler()
         self.last_beacon: float | None = None
+        self.mesh = MeshService(self)
+        self.audio = AudioMonitor(clock)
+        self._mesh_task: asyncio.Task | None = None
         self._tasks: list[asyncio.Task] = []
+        self.power_command = run_power_command  # tests replace this
+        self._power_task: asyncio.Task | None = None
 
     # --- lifecycle ---------------------------------------------------------
 
@@ -73,22 +84,27 @@ class Core:
         if self.config.direwolf_managed and self.direwolf and not self.direwolf.conf_path.exists():
             self.direwolf.write(self.config)  # first boot: the unit needs a config
         self.beacons.hold(self.clock() + BEACON_STARTUP_DELAY_S)
+        self.store.end_open_wd_sessions(self.clock())
         self._tasks = [
             asyncio.create_task(self.kiss.run(), name="kiss"),
             asyncio.create_task(self._prune_loop(), name="prune"),
             asyncio.create_task(self._message_loop(), name="messages"),
             asyncio.create_task(self.gps.run(), name="gps"),
             asyncio.create_task(self._beacon_loop(), name="beacon"),
+            asyncio.create_task(self._mesh_loop(), name="mesh"),
+            asyncio.create_task(self.audio.run(), name="audio"),
         ]
         self._sync_aprsis()
+        self._sync_mesh()
 
     async def stop(self) -> None:
-        tasks = self._tasks + ([self._aprsis_task] if self._aprsis_task else [])
+        self.mesh.wardrive.stop()
+        tasks = self._tasks + [t for t in (self._aprsis_task, self._mesh_task) if t]
         for t in tasks:
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         self._tasks = []
-        self._aprsis_task = None
+        self._aprsis_task = self._mesh_task = None
 
     def _sync_aprsis(self, restart: bool = False) -> None:
         """Run the APRS-IS client exactly when it's enabled; ``restart`` re-logs in."""
@@ -100,6 +116,17 @@ class Core:
             running = False
         if not running and self.config.aprsis.enabled:
             self._aprsis_task = asyncio.create_task(self.aprsis.run(), name="aprsis")
+
+    def _sync_mesh(self, restart: bool = False) -> None:
+        """Run the MeshCore link exactly when it's enabled; ``restart`` reconnects."""
+        running = self._mesh_task is not None and not self._mesh_task.done()
+        if running and (restart or not self.config.meshcore.enabled):
+            self._mesh_task.cancel()
+            self._mesh_task = None
+            self.mesh.link._set(False)
+            running = False
+        if not running and self.config.meshcore.enabled:
+            self._mesh_task = asyncio.create_task(self.mesh.link.run(), name="meshcore")
 
     def _aprsis_login(self) -> tuple[str, int, str, int, str]:
         c = self.config
@@ -127,6 +154,14 @@ class Core:
             except Exception:
                 log.exception("beacon tick failed")
             await asyncio.sleep(BEACON_TICK_S)
+
+    async def _mesh_loop(self) -> None:
+        while True:
+            try:
+                await self.mesh.tick()
+            except Exception:
+                log.exception("MeshCore tick failed")
+            await asyncio.sleep(MESH_TICK_S)
 
     # --- state -------------------------------------------------------------
 
@@ -168,6 +203,7 @@ class Core:
             "gps": self.gps_status(),
             "can_beacon": self.can_beacon(),
             "last_beacon": self.last_beacon,
+            "mesh": self.mesh.status(),
         }
 
     def stations(self) -> list[dict[str, Any]]:
@@ -190,8 +226,28 @@ class Core:
                          new.station, new.aprsis.server, new.aprsis.port, new.aprsis.passcode,
                          new.aprsis.filter, new.fixed_lat, new.fixed_lon)
         self._sync_aprsis(restart=login_changed)
+        if not new.meshcore.enabled:
+            self.mesh.wardrive.stop()
+        self._sync_mesh(restart=(old.meshcore.device, old.meshcore.baud) != (
+            new.meshcore.device, new.meshcore.baud))
         self._publish_status()
         return result
+
+    def power(self, action: str) -> None:
+        """Shut down or reboot the Pi, shortly. systemd stops the services cleanly first."""
+        if action not in POWER_COMMANDS:
+            raise ValueError(f"unknown power action: {action}")
+        log.warning("power: %s requested", action)
+        self.bus.publish("power", {"action": action})
+        self._power_task = asyncio.create_task(self._power(action), name="power")
+
+    async def _power(self, action: str) -> None:
+        await asyncio.sleep(POWER_DELAY_S)
+        try:
+            await self.power_command(POWER_COMMANDS[action])
+        except Exception as e:
+            log.error("power: %s failed: %s", action, e)
+            self.bus.publish("power", {"action": action, "error": str(e)})
 
     def _kiss_state(self, connected: bool) -> None:
         self._publish_status()
@@ -387,3 +443,14 @@ class Core:
         packet = self.store.add_packet(self.clock(), tnc2, self.config.station, fmt,
                                        direction="tx", channel=channel)
         self.bus.publish("packet", packet)
+
+
+async def run_power_command(command: str) -> None:
+    """``systemctl poweroff|reboot`` through the sudoers rule install.sh adds."""
+    proc = await asyncio.create_subprocess_exec(
+        "sudo", "-n", "/usr/bin/systemctl", command,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+    )
+    out, _ = await asyncio.wait_for(proc.communicate(), 30)
+    if proc.returncode != 0:
+        raise RuntimeError(out.decode(errors="replace").strip() or f"exit {proc.returncode}")

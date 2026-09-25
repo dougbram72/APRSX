@@ -5,7 +5,7 @@ into work packages (WPs). Tick a box when the WP is done and verified. Record an
 departure from DESIGN.md, and any choice DESIGN.md left open, in the decision log at
 the bottom.
 
-**Status (2026-09-24):** phases 1–7 done. Phase 8 (packaging): units, installer and boot setup done and checked on the test Pi; the fresh-SD-card test (WP8.4) is still to do. Phase 9 (FTM-200D backend) is next.
+**Status (2026-09-24):** phases 1–7 done. Phase 8 (packaging): units, installer and boot setup done and checked on the test Pi; the fresh-SD-card test (WP8.4) is still to do. Phase 9 (FTM-200D backend) is next. Phase 10 (MeshCore + war-driving) is built and tested against a fake device; the hardware check (WP10.1) and a road test (WP10.9) are still to do.
 
 ---
 
@@ -90,6 +90,7 @@ the bottom.
 - [x] WP8.2 Install script for a fresh SD card (one command): `deploy/install.sh`
 - [x] WP8.3 Boot config notes/automation (UART, DSI, eglfs): `docs/INSTALL.md`
 - [ ] WP8.4 Fresh-install test on the Pi
+- [x] WP8.5 Safe shutdown: ⏻ button on the head unit (Shut down / Restart), `POST /api/system/power`, sudoers rule from the installer. Shut down and restart tested on the Pi (2026-09-24), both clean.
 
 ## Phase 9: Yaesu FTM-200D radio backend
 
@@ -99,6 +100,7 @@ serial bridge in the core stands in for Direwolf.
 
 - [ ] **Phase 9 complete**
 - [ ] WP9.1 Capture and document the FTM-200D data-port output over the SCU-66 (serial settings, line format, which packet types are sent, radio menu settings). Use the user's existing `ftm200_aprs_bridge.py` on the Pi as a reference, but don't change it.
+  - In progress: `docs/FTM200.md` (known format, radio settings, open questions) and the read-only capture tool `tools/ftm200_capture.py` are ready. Waiting on a capture with the SCU-66 plugged in; the radio has never been connected to the test Pi, so there are no earlier captures.
 - [ ] WP9.2 Radio-backend interface in the core, with Direwolf/KISS as one backend. Select the backend in `Config` (e.g. `radio_backend: "direwolf" | "ftm200"`, serial device path).
 - [ ] WP9.3 FTM-200 serial backend: async reader with reconnect on the SCU-66 port (`/dev/serial/by-id/...`)
 - [ ] WP9.4 Parser that turns FTM-200 data-port output into standard TNC2 packets, fed into the same parse → store → publish path as KISS frames
@@ -109,9 +111,67 @@ serial bridge in the core stands in for Direwolf.
 
 ---
 
+## Phase 10: MeshCore companion and war-driving
+
+A Heltec V4 with MeshCore USB-serial companion firmware, as a third channel beside RF
+and APRS-IS: messages, nodes heard, and war-driving for a coverage map.
+
+- [ ] **Phase 10 complete**
+- [ ] WP10.1 On the Pi: check the Heltec runs the USB-serial companion firmware (not the BLE build) and a version that answers discovery requests; record real events and check the payload keys `meshlink.translate()` relies on
+  - 2026-09-25: the Heltec (MeshCore v1.15.0, 910.525 MHz / BW 62.5 / SF7 / CR5) answers on USB after reflashing with the USB companion build (the BLE build is silent on USB). Self info, device info, contacts and channels match the code; the device has 40 channel slots. MeshCore is on in the Pi's core and connects. One discovery request was accepted but got no answer: the only known nodes are ~385 km away. RX log, advert and discovery-answer payloads are still to be seen from real traffic.
+  - 2026-09-25: on-air test with a second companion (KFOKBPC2) and the KF0KB-RPT-1 repeater: flood advert under the new node name, a DM out (acked on the first try) and one back, and Public channel messages both ways, all shown on the web Mesh page and head unit. Discovery answers are still to be seen from real traffic.
+- [x] WP10.2 `meshlink.py` (the only `meshcore` import, lazy), `tests/meshfake.py`, `Config.meshcore`, schema migration 5
+- [x] WP10.3 `mesh.MeshService`: nodes from adverts and contacts, DMs with ack/retry (last try floods), channel messages, clock and position pushed to the node
+- [x] WP10.4 API and WS events, web Mesh page, MeshCore settings section
+- [x] WP10.5 `wardrive.Wardriver`: discovery / channel-ping turns, answer windows, echo matching, passive RX log, optional adverts, sessions
+- [x] WP10.6 Map layers (mesh nodes, coverage pings coloured by SNR, lines to answering nodes) and GeoJSON/CSV/GPX export
+- [x] WP10.7 Head unit: MESH pill in the status strip opens a Mesh sheet (war-drive start/stop and counters, messages, channel compose)
+- [x] WP10.8 Packaging: `mesh` extra (meshcore pinned) installed by `deploy/install.sh`
+- [ ] WP10.9 Road test: a drive with the Heltec, then check the coverage map and exports
+
 ## Decision log
 
 Newest first. Note the date, the phase/WP, what was decided, and why.
+
+### 2026-09-25: Status page
+
+- **`status.html` / `GET /api/system/status`**: Pi health (`sysinfo.py`: CPU, temperature, memory, disk, `vcgencmd get_throttled` power flags, service states), link states, GPS detail (every satellite's signal, DOP, error estimates, and why a fix is ignored) and receive audio levels. The page polls every 3 s rather than adding more WebSocket events.
+- **Audio levels come from Direwolf's own log** (`audiomon.py` follows `journalctl _SYSTEMD_USER_UNIT=aprsx-direwolf.service`; `pi` can read the system journal through the `adm` group): the level of each decoded packet, plus the noise level every 30 s from Direwolf's `-a 30`, now in the unit. We never open the sound card ourselves, which Direwolf owns. Without the journal (Direwolf not managed, or a PC) the page says the audio levels aren't available.
+
+### 2026-09-25: Untrusted GPS fixes are ignored
+
+- After a reboot the test Pi's u-blox, hearing only 3 weak satellites, reported a "fix" ~385 km off moving at ~200 knots, and the core used it for the APRS-IS filter, distances, the map and the MeshCore node. `GpsdClient.current()` now returns no fix when fewer than 4 satellites are used (`MIN_SATS_USED`) or the speed is over 300 km/h (`MAX_SPEED_MS`), so the core falls back to the fixed position (or none) and the GPS pill shows "searching". This rules out 3-satellite 2D fixes, which are too unreliable to beacon.
+
+### 2026-09-25: MeshCore messages on the head unit's carousel
+
+- **One carousel, both channels.** Mesh DMs and messages on every channel, both ways, are cards beside the APRS messages, ordered by time (cards are keyed `a<id>`/`m<id>`, since the two tables' ids overlap). Mesh cards are tinted purple with a MESH tag; received ones read "From <node>" or "From <sender> on <channel>" with SNR/hops in the footer, sent DMs show ack state (3 tries). Reply on a mesh card answers over the mesh (the DM's node or the same channel); Quick Msg stays APRS-only. New mesh messages jump to the front and count as read after 1.5 s on screen, like APRS.
+- **Node names in the head unit.** It loads `/api/mesh/nodes` and follows `mesh_node` events for a prefix → name map (as the web page does), so DMs show node names on the carousel and in the Mesh sheet.
+- **A reload goes back to the newest card.** APRS and mesh histories load separately after connecting, and live inserts keep the carousel's current card, so it could open part-way down. A reload now rebuilds the cards and jumps to the front; live updates still don't move it.
+
+### 2026-09-25: MeshCore node name, and no task leak while unplugged
+
+- **Node name as a setting.** `meshcore.name` (blank = leave the device's own) is pushed to the companion with `set_name` once per connection when it differs, so adverts carry it. A refused name isn't retried until the next connection.
+- **Our own serial open instead of `MeshCore.create_serial()`.** The library starts its event dispatcher before opening the port, and when the open fails (the Heltec unplugged) it drops the object with the dispatcher task still pending. Every 2-minute retry leaked one, and they surfaced later as bursts of "Task was destroyed but it is pending!" errors. `MeshLink._open()` does the same (DTR, then inverted DTR) but always disconnects a failed attempt.
+
+### 2026-09-24: MeshCore and war-driving (phase 10)
+
+- **A separate channel, not a radio backend.** MeshCore addresses nodes by public key, has its own routing and acks, and runs beside the APRS radio, so it gets its own tables (`mesh_nodes`, `mesh_messages`, `wd_*`), API (`/api/mesh/*`, `/api/wardrive/*`) and events, and doesn't touch `Core.transmit()` or the Phase 9 backend interface.
+- **The official `meshcore` library, pinned** (optional `mesh` extra). It tracks firmware protocol changes; its dependencies (bleak, pycryptodome, pyserial-asyncio-fast) are small. Only `meshlink.py` imports it, lazily, so the core runs without it and tests use a fake link.
+- **Hybrid war-driving, like MeshMapper.** Nodes don't answer adverts, so pings take turns between a zero-hop discovery request (repeaters answer with our SNR at their end and theirs at ours) and a channel message on `#wardriving` (not Public, to keep from spamming it). We match its repeats in the RX log by channel and our sender timestamp, and credit the last hop in the path. Pings need a GPS fix, `interval_s` and `min_distance_m`; answers count only inside their window. Everything else heard during a session is logged as `rx` against our position. Timed zero-hop adverts are optional (off by default).
+- **Nodes counted by their first key byte.** Echoes name a repeater by a 1-byte path hash and discovery by an 8-byte prefix; counting by the first byte keeps one repeater from counting twice, at the cost of merging rare collisions.
+- **Local data only.** Sessions stay in SQLite and are exported as GeoJSON/CSV/GPX; no upload to MeshMapper.
+- **Nothing transmits by itself.** The Heltec only sends when the user sends a message, taps Advert, or starts a war-drive session (which ends when stopped or when the core restarts).
+
+### 2026-09-24: Safe shutdown (WP8.5)
+
+- **The core powers the Pi off, not the head unit** (`Core.power()`, `POST /api/system/power {action: shutdown|reboot}`, auth like the other actions). The web UI can use the same endpoint later. It publishes a `power` event first, then runs the command 1 s later so the reply and the event reach the clients; a failure comes back as a `power` event with `error`.
+- **Permission is a narrow sudoers drop-in** (`/etc/sudoers.d/aprsx-power`: `systemctl poweroff`/`reboot` only), run as `sudo -n`. The core is a lingering user service with no seat session, so logind/polkit would refuse a plain `systemctl poweroff`; the rule also keeps working on an image without blanket passwordless sudo.
+- **The button is ⏻ at the right end of the status strip**, not a sixth bottom-bar button, so it's hard to hit by accident and the bar keeps its size. It opens a Power sheet (Shut down / Restart / Close), which is the confirmation step. While going down, a full-screen overlay says to wait for the green light to stop.
+
+### 2026-09-24: FTM-200D capture prep (WP9.1)
+
+- **Capture tool is standalone** (`tools/ftm200_capture.py`, stdlib + pyserial on the Pi's system python3), not an `aprsx-*` command. This keeps pyserial out of the core's dependencies until WP9.3 chooses how to read the serial port. It never writes to the port and holds RTS/DTR low like the user's bridge. It saves the exact bytes (`.raw`) for WP9.6 fixtures, plus a timestamped `repr()` log.
+- **Direwolf is the reference.** During the capture the Digirig/UV-5R path stays up, so each FTM-200 line can be checked against Direwolf's TNC2 for the same packet in the core's `packets` table. This shows whether the radio changes the path (H bits) or the info field.
 
 ### 2026-09-24: Packaging (phase 8)
 

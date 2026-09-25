@@ -20,6 +20,7 @@ ApplicationWindow {
         function onToast(text) { toast.show(text) }
         // New incoming messages jump to the front.
         function onMessageArrived(id) { carousel.currentIndex = 0 }
+        function onPowering(action) { goingDown.action = action }
     }
 
     StatusStrip {
@@ -27,6 +28,8 @@ ApplicationWindow {
         anchors.top: parent.top
         width: parent.width
         height: 52 * Theme.u
+        onPowerRequested: power.open()
+        onMeshRequested: mesh.open()
     }
 
     // --- message carousel --------------------------------------------------
@@ -54,6 +57,7 @@ ApplicationWindow {
 
         ListView {
             id: carousel
+            objectName: "carousel"
             anchors.left: newer.right
             anchors.right: older.left
             anchors.top: parent.top
@@ -68,6 +72,11 @@ ApplicationWindow {
             model: core.messages
             // A model reset leaves no current item; always show a message when there is one.
             onCountChanged: if (currentIndex < 0 && count > 0) currentIndex = 0
+            Connections {
+                target: core.messages
+                // A reload (after connecting) starts again from the newest card.
+                function onModelReset() { carousel.currentIndex = 0 }
+            }
             delegate: MessageCard {
                 width: carousel.width
                 height: carousel.height
@@ -111,7 +120,7 @@ ApplicationWindow {
             interval: 1500
             running: !!carousel.currentItem && carousel.currentItem.unread
                      && !carousel.moving && app.active
-            onTriggered: core.markRead(carousel.currentItem.peer)
+            onTriggered: carousel.currentItem.markRead()
         }
     }
 
@@ -137,12 +146,18 @@ ApplicationWindow {
             width: bar.cellW; height: bar.height
             text: "Reply"
             enabled: !!carousel.currentItem
-            onClicked: compose.openFor(carousel.currentItem.peer)
+            onClicked: {
+                const card = carousel.currentItem
+                if (card.mesh) compose.openForMesh(card.conv, card.replyName)
+                else compose.openFor(card.peer)
+            }
         }
         BigButton {
             width: bar.cellW; height: bar.height
             text: "Quick Msg"
-            onClicked: quick.openFor(carousel.currentItem ? carousel.currentItem.peer : "")
+            // Quick Msg is APRS only.
+            onClicked: quick.openFor(carousel.currentItem && !carousel.currentItem.mesh
+                                     ? carousel.currentItem.peer : "")
         }
         BigButton {
             width: bar.cellW; height: bar.height
@@ -177,7 +192,7 @@ ApplicationWindow {
         id: compose
         objectName: "compose"
         anchors.fill: parent
-        z: 10
+        z: 11   // also opens over the mesh sheet
     }
     StationsSheet {
         id: stations
@@ -185,6 +200,56 @@ ApplicationWindow {
         anchors.fill: parent
         z: 10
         onPicked: (name) => { stations.close(); quick.openFor(name) }
+    }
+
+    MeshSheet {
+        id: mesh
+        objectName: "mesh"
+        anchors.fill: parent
+        z: 10
+        onCompose: (conv, name) => compose.openForMesh(conv, name)
+    }
+
+    PowerSheet {
+        id: power
+        objectName: "power"
+        anchors.fill: parent
+        z: 10
+    }
+
+    // Covers everything once the core has started a shutdown or reboot.
+    Rectangle {
+        id: goingDown
+        property string action
+        objectName: "goingDown"
+        anchors.fill: parent
+        z: 30
+        visible: action !== ""
+        color: Theme.bg
+        MouseArea { anchors.fill: parent }   // nothing to press any more
+
+        Column {
+            anchors.centerIn: parent
+            width: parent.width - 4 * Theme.gap
+            spacing: Theme.gap * 2
+            Text {
+                width: parent.width
+                text: goingDown.action === "reboot" ? "Restarting…" : "Shutting down…"
+                color: Theme.accent
+                font.pixelSize: Theme.huge
+                font.bold: true
+                horizontalAlignment: Text.AlignHCenter
+            }
+            Text {
+                width: parent.width
+                visible: goingDown.action === "shutdown"
+                text: "Wait for the green light on the Pi to stop flashing before removing power."
+                color: Theme.text
+                font.pixelSize: Theme.body
+                wrapMode: Text.WordWrap
+                horizontalAlignment: Text.AlignHCenter
+            }
+        }
     }
 
     Loader {

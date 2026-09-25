@@ -1,13 +1,26 @@
 import QtQuick
 import QtQuick.Controls
 
-// Free-form message with the on-screen keyboard.
+// Free-form message with the on-screen keyboard: APRS (openFor) or MeshCore (openForMesh).
 Sheet {
     id: sheet
-    title: "New message"
-    readonly property int maxLength: 67
+    title: meshConv ? "Mesh: " + meshName : "New message"
+    property string meshConv     // "ch:<index>" or "dm:<prefix>" when sending on the mesh
+    property string meshName
+    readonly property int maxLength: meshConv ? 140 : 67
+
+    function openForMesh(conv, name) {
+        meshConv = conv
+        meshName = name
+        toField.text = ""
+        textField.text = ""
+        open()
+        textField.forceActiveFocus()
+        Qt.inputMethod.show()
+    }
 
     function openFor(peer) {
+        meshConv = ""
         toField.text = peer || ""
         textField.text = ""
         open()
@@ -28,9 +41,10 @@ Sheet {
             width: 110 * Theme.u
             text: "Send"
             highlighted: enabled
-            enabled: toField.text.trim() !== "" && textField.text.trim() !== ""
+            enabled: (!!sheet.meshConv || toField.text.trim() !== "") && textField.text.trim() !== ""
             onClicked: {
-                core.sendMessage(toField.text, textField.text)
+                if (sheet.meshConv) core.sendMesh(sheet.meshConv, textField.text)
+                else core.sendMessage(toField.text, textField.text)
                 sheet.close()
             }
         }
@@ -55,7 +69,8 @@ Sheet {
         spacing: Theme.gap
         Field {
             id: toField
-            width: 170 * Theme.u
+            visible: !sheet.meshConv
+            width: visible ? 170 * Theme.u : 0
             placeholderText: "To"
             font.family: Theme.mono
             maximumLength: 9
@@ -65,12 +80,14 @@ Sheet {
         }
         Field {
             id: textField
-            width: parent.width - toField.width - parent.spacing
+            width: parent.width - (toField.visible ? toField.width + parent.spacing : 0)
             placeholderText: "Message"
             maximumLength: sheet.maxLength
             inputMethodHints: Qt.ImhNoPredictiveText
-            // APRS message text is printable ASCII without | ~ {
-            validator: RegularExpressionValidator { regularExpression: /[ -z}]*/ }
+            // APRS message text is printable ASCII without | ~ {; MeshCore takes any text.
+            validator: RegularExpressionValidator {
+                regularExpression: sheet.meshConv ? /.*/ : /[ -z}]*/
+            }
         }
     }
 }

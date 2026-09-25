@@ -35,12 +35,17 @@ database (`~/.local/share/aprsx/aprsx.db`).
 
 - **Packages:** `direwolf`, `gpsd`, `gpsd-clients`, `python3-venv`, `git`, `rsync`, and
   for the head unit Debian's PySide6/Qt 6 packages (`deploy/head-apt-packages.txt`).
-- **Core:** a venv at `~/aprsx/.venv` with the `aprsx` package installed.
+- **Core:** a venv at `~/aprsx/.venv` with the `aprsx` package installed, with the
+  `mesh` extra (the `meshcore` library, for a MeshCore companion radio on USB).
 - **gpsd:** `/etc/default/gpsd` from `deploy/gpsd.default` (GPS on `/dev/serial0`,
   USB auto-probing off so it leaves the Digirig and SCU-66 alone). The original is
   kept as `/etc/default/gpsd.pre-aprsx`.
 - **WirePlumber** (desktop image): a rule so PipeWire leaves the Digirig's sound card
   to Direwolf.
+- **Power button:** `/etc/sudoers.d/aprsx-power` lets the core run `systemctl poweroff`
+  and `systemctl reboot` (and nothing else) without a password, for the head unit's ⏻
+  button (`POST /api/system/power`). systemd stops the services cleanly before the Pi
+  turns off; wait for the green activity light to stop before pulling power.
 - **systemd user units** in `~/.config/systemd/user/`, with lingering on so they start
   at boot without a login:
 
@@ -64,6 +69,16 @@ sudo journalctl _SYSTEMD_USER_UNIT=aprsx-core.service -f   # when the user journ
 `aprsx-config KEY=VALUE ...` changes settings from the shell (e.g. `ssid=7`,
 `aprsis.enabled=true`). Stop `aprsx-core` first, or the running core will overwrite
 the change on its next save.
+
+## MeshCore radio (optional)
+
+A LoRa board such as a Heltec V4 flashed with MeshCore's **USB-serial companion**
+firmware (the BLE companion build doesn't answer on USB). Plug it into the Pi, then on
+the Settings page turn on *MeshCore* and pick its `/dev/serial/by-id/...` port. The
+status strip shows a Mesh pill once it's connected; messages, nodes heard and
+war-driving are on the Mesh page (and behind the MESH pill on the head unit). For
+war-driving, add a `#wardriving` channel on the device first, or only discovery
+requests go out. The `pi` user needs to be in the `dialout` group to open the port.
 
 ## Boot configuration
 
