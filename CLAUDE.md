@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-APRS-X is a mobile APRS appliance for a Raspberry Pi (target: Pi 3B+ with a 5" DSI touch screen; must scale to larger screens and newer Pis). A Digirig soundcard interface connects it to a transceiver. The full design and phased roadmap are in `docs/DESIGN.md`. Phases 1 (foundation), 2 (receive path, stations heard, live web packet log), 3 (messaging, web chat), 4 (touch-screen head unit), 5 (GPS + beaconing), 6 (settings pages, managed Direwolf, map with offline tiles) and 7 (APRS-IS client and iGate) are done. SmartBeaconing hasn't been road-tested yet.
+APRS-X is a mobile APRS appliance for a Raspberry Pi (target: Pi 3B+ with a 5" DSI touch screen; must scale to larger screens and newer Pis). A Digirig soundcard interface connects it to a transceiver. The full design and phased roadmap are in `docs/DESIGN.md`. Phases 1 (foundation), 2 (receive path, stations heard, live web packet log), 3 (messaging, web chat), 4 (touch-screen head unit), 5 (GPS + beaconing), 6 (settings pages, managed Direwolf, map with offline tiles) and 7 (APRS-IS client and iGate) are done. Phase 8 (packaging: systemd units, `deploy/install.sh`, `docs/INSTALL.md`) is done apart from the fresh-SD-card test. SmartBeaconing hasn't been road-tested yet.
 
 Progress is tracked in `docs/PROGRESS.md`. Tick off work packages as they are finished, and add design changes and choices to its decision log.
 
@@ -20,6 +20,8 @@ uv run pytest tests/test_ax25.py::test_roundtrip -q   # single test
 uv run aprsx-core [--db PATH] [--port N]  # the service; web UI at http://<host>:8080/
 uv run aprsx-monitor --host 127.0.0.1 --port 8001     # print packets from Direwolf KISS
 uv run aprsx-head [--url http://host:8080] [--fullscreen] [--no-keyboard]  # head unit (needs --extra head)
+uv run aprsx-config [--db PATH] [KEY=VALUE ...]  # print/set stored settings (core stopped)
+deploy/install.sh [--callsign CALL-SSID] [--no-head] [--no-boot]  # Pi installer, see docs/INSTALL.md
 direwolf -c deploy/direwolf.conf          # software TNC for the Digirig
 ```
 
@@ -55,11 +57,11 @@ GPS HAT ─ /dev/serial0 ─ gpsd:2947 ─────────┤
 ## Target Pi (test unit)
 
 - `pi@192.168.50.232` (hostname `aprs-pi`): Pi 3B+, Debian 13 trixie arm64, Python 3.13, desktop image. SSH key auth works, and `pi` has passwordless sudo.
-- The project is copied to `~/aprsx`, with its own venv at `~/aprsx/.venv` (plain venv + pip, no uv on the Pi). Sync by piping a tarball over ssh.
+- The project is copied to `~/aprsx`, with its own venv at `~/aprsx/.venv` (plain venv + pip, no uv on the Pi). Sync by piping a tarball over ssh, then run `~/aprsx/deploy/install.sh` (no `--callsign`, so the settings are kept); it reinstalls the package and restarts the core and head unit.
 - Station: KF0KBP-7, Baofeng UV-5R through a Digirig. The working Direwolf config is `~/.config/direwolf/ht.conf` (ALSA card `Device`, PTT on the CP2102 `/dev/serial/by-id/...` path, RTS). It has no beacons or digipeating set up, so running it only receives.
-- The head unit runs on the system python3 with Debian's PySide6 (`deploy/head-apt-packages.txt`), not the venv: `systemd-run --user --unit=aprsx-head-test -E WAYLAND_DISPLAY=wayland-0 -E XDG_RUNTIME_DIR=/run/user/1000 -E QT_QPA_PLATFORM=wayland -E PYTHONPATH=/home/pi/aprsx /usr/bin/python3 -m aprsx.head --fullscreen`. Screenshot the DSI screen with `grim` using the same env.
-- Direwolf runs as the enabled user unit `aprsx-direwolf.service` (`deploy/`), with its config written by the core to `~/.config/aprsx/direwolf.conf` (managed mode). Don't start other Direwolf instances; they'd fight over the Digirig.
-- The core still runs as a transient unit: `systemd-run --user --unit=aprsx-core-test ~/aprsx/.venv/bin/aprsx-core` (gone after reboot until phase 8). The DB is `~/.local/share/aprsx/aprsx.db`. The user journal has no storage on this Pi, so read user-unit output from the system journal: `sudo journalctl _SYSTEMD_USER_UNIT=aprsx-direwolf.service` (the unit uses `stdbuf -oL`, since Direwolf block-buffers off a TTY). It's lost on reboot.
+- Everything runs as enabled systemd user units from the installer, with lingering on: `aprsx-direwolf`, `aprsx-core`, `aprsx-head` (`systemctl --user restart aprsx-core`). The head unit runs on the system python3 with Debian's PySide6 (`deploy/head-apt-packages.txt`), not the venv, as a Wayland window under the desktop's labwc session (`~/.config/aprsx/head.env`). Screenshot the DSI screen with `WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000 grim out.png`.
+- Direwolf's config is written by the core to `~/.config/aprsx/direwolf.conf` (managed mode). Don't start other Direwolf instances; they'd fight over the Digirig.
+- The DB is `~/.local/share/aprsx/aprsx.db`. The user journal has no storage on this Pi, so read user-unit output from the system journal: `sudo journalctl _SYSTEMD_USER_UNIT=aprsx-direwolf.service` (the unit uses `stdbuf -oL`, since Direwolf block-buffers off a TTY). It's lost on reboot.
 - Graywolf, YAAC and Java were removed from the Pi (2026-09-23). Direwolf is the only APRS package installed; don't install other APRS software.
 - GPS: a u-blox 7 on the GPIO UART (`/dev/serial0` → `ttyAMA0`, 9600 baud) via `dtoverlay=disable-bt` (Bluetooth is off) with the serial console removed; originals are `/boot/firmware/*.pre-gps`. gpsd is the system service, configured from `deploy/gpsd.default` (`USBAUTO="false"` so it never touches the Digirig or SCU-66). `gpspipe -w` shows its output.
 - The core on the Pi has automatic beacons paused (`smartbeacon.enabled=false`, `beacon_interval_s=0`) until the user turns them on; don't re-enable them without asking, since they transmit.

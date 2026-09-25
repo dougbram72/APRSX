@@ -50,7 +50,7 @@ Key principle: **aprsx-core owns all state and radio I/O.** The head unit and th
    - Main area: a message carousel (from, to, text, time, ack state) with ◀ ▶ buttons. New messages jump to the front and an unread count is shown.
    - Button bar: **Beacon**, **Reply**, **Quick Msg** (canned text + favorite recipients), **Keyboard** (free-form text through the Qt virtual keyboard), **Stations** (list of stations heard), status strip (GPS fix, TX/RX indicator, APRS-IS online, last beacon).
    - Talks only to aprsx-core through `ws://localhost:8080/ws` and REST.
-5. **Deployment**: systemd units `direwolf.service`, `gpsd`, `aprsx-core.service`, `aprsx-head.service` (with dependency ordering), plus an install script for Raspberry Pi OS Lite 64-bit (Bookworm).
+5. **Deployment**: systemd units `direwolf.service`, `gpsd`, `aprsx-core.service`, `aprsx-head.service` (with dependency ordering), plus an install script for Raspberry Pi OS 64-bit (trixie), desktop or Lite. See `docs/INSTALL.md`.
 
 ## Repository layout (proposed)
 ```

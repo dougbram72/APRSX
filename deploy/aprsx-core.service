@@ -1,0 +1,15 @@
+# APRS-X core: radio I/O, state, and the web UI/API on port 8080.
+# install.sh fills in @APP_DIR@ and installs it as a user unit (with lingering on,
+# so it starts at boot without a login).
+[Unit]
+Description=APRS-X core service
+# Direwolf and gpsd may start later or restart; the core reconnects to both.
+After=aprsx-direwolf.service
+
+[Service]
+ExecStart=@APP_DIR@/.venv/bin/aprsx-core
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

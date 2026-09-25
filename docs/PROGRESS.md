@@ -5,7 +5,7 @@ into work packages (WPs). Tick a box when the WP is done and verified. Record an
 departure from DESIGN.md, and any choice DESIGN.md left open, in the decision log at
 the bottom.
 
-**Status (2026-09-24):** phases 1–4, 6 and 7 done. Phase 5 (GPS + beaconing) waits for the GPS hardware; phase 8 (packaging) can go next. Phase 9 (FTM-200D backend) was added 2026-09-24.
+**Status (2026-09-24):** phases 1–7 done. Phase 8 (packaging): units, installer and boot setup done and checked on the test Pi; the fresh-SD-card test (WP8.4) is still to do. Phase 9 (FTM-200D backend) is next.
 
 ---
 
@@ -86,9 +86,9 @@ the bottom.
 ## Phase 8: Packaging
 
 - [ ] **Phase 8 complete**
-- [ ] WP8.1 systemd units: `direwolf`, `gpsd`, `aprsx-core`, `aprsx-head`, with ordering
-- [ ] WP8.2 Install script for a fresh SD card (one command)
-- [ ] WP8.3 Boot config notes/automation (UART, DSI, eglfs)
+- [x] WP8.1 systemd units: `direwolf`, `gpsd`, `aprsx-core`, `aprsx-head`, with ordering
+- [x] WP8.2 Install script for a fresh SD card (one command): `deploy/install.sh`
+- [x] WP8.3 Boot config notes/automation (UART, DSI, eglfs): `docs/INSTALL.md`
 - [ ] WP8.4 Fresh-install test on the Pi
 
 ## Phase 9: Yaesu FTM-200D radio backend
@@ -112,6 +112,17 @@ serial bridge in the core stands in for Direwolf.
 ## Decision log
 
 Newest first. Note the date, the phase/WP, what was decided, and why.
+
+### 2026-09-24: Packaging (phase 8)
+
+- **All three services are systemd *user* units** (`aprsx-direwolf`, `aprsx-core`, `aprsx-head`) with lingering on, so they start at boot without a login. The core already restarts Direwolf with `systemctl --user`, and the head unit needs the user's Wayland session on the desktop image. gpsd stays the Debian system service. User units can't order against system ones, and the core reconnects to KISS and gpsd anyway, so the only hard ordering is head → core (`Wants`/`After`).
+- **`aprsx-direwolf` has `ConditionPathExists` on its config.** On a fresh install without `--callsign`, Direwolf stays stopped until *Manage Direwolf* is turned on; the core then writes the file and restarts the unit, which passes the condition.
+- **Target is Raspberry Pi OS trixie (Debian 13), desktop or Lite**, not Bookworm Lite as DESIGN.md says: that's what the test Pi runs. The installer picks the head unit's Qt platform from the image: Wayland under labwc when the default target is graphical, else eglfs. `~/.config/aprsx/head.env` holds the choice and is written only once, so manual edits survive re-runs.
+- **One command:** `curl … /deploy/install.sh | bash -s -- --callsign CALL-SSID`. Run from a checkout, it installs from that copy (rsync to `~/aprsx`, or in place); piped, it clones the public GitHub repo. It's idempotent: re-running updates the code (pip reinstall of the package, since the version number doesn't change) and keeps the DB. Units are templates with `@APP_DIR@`.
+- **`aprsx-config`** (new CLI, `core/configure.py`) prints or sets stored settings (`KEY=VALUE`, JSON values, dotted keys for nested ones), validated by `Config`. The installer uses it for `--callsign`: callsign, SSID, `direwolf_managed=true` and `ptt=<Digirig by-id path> RTS` when a CP2102 is present. It's only safe with the core stopped.
+- **Boot automation** is plain edits rather than `raspi-config nonint`: add `enable_uart=1` and `dtoverlay=disable-bt` under `[all]` if missing (either `disable-bt` or `miniuart-bt` counts), strip `console=serial0/ttyAMA0/ttyS0` from `cmdline.txt`, disable `hciuart` and the serial getty. Originals go to `*.pre-aprsx` once. The DSI display needs nothing beyond the default `display_auto_detect=1`.
+- **`sudo true`, not `sudo -v`,** to prime sudo: on Pi OS `-v` asks for a password even with the NOPASSWD rule, because the `%sudo` rule still needs one.
+- **Checked on the test Pi (20:06–20:12):** the installer ran over the existing setup (replacing the transient `aprsx-core-test`/`aprsx-head-test` units) with no boot changes needed. After a reboot, Direwolf, core, gpsd and head unit all came up on their own and the head unit covered the desktop. **eglfs** was tried with lightdm stopped: the head unit became DRM master and drew 800×480 on the DSI output. Touch under eglfs wasn't checked (it needs someone at the screen); that's part of WP8.4. Starting lightdm while the eglfs head holds the display fails, hence the note in INSTALL.md.
 
 ### 2026-09-24: Online features (phase 7)
 
