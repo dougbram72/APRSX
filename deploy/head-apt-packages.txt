@@ -16,3 +16,6 @@ qml6-module-qtquick-virtualkeyboard
 qt6-virtualkeyboard-plugin
 qt6-svg-plugins
 qt6-wayland
+# eglfs (Lite image, no desktop): the platform plugin and a font
+libqt6opengl6
+fonts-dejavu-core

@@ -1,8 +1,11 @@
 # Direwolf with the config APRS-X writes from its settings (Config.direwolf_managed).
-# Install as a user unit: ~/.config/systemd/user/aprsx-direwolf.service
+# Installed by install.sh as a user unit: ~/.config/systemd/user/aprsx-direwolf.service
 [Unit]
 Description=Direwolf soundcard TNC (config written by APRS-X)
 After=sound.target
+# Until "Manage Direwolf" is turned on in the settings there is no config, and
+# Direwolf stays stopped. The core writes it and restarts this unit.
+ConditionPathExists=%h/.config/aprsx/direwolf.conf
 
 [Service]
 # stdbuf: Direwolf block-buffers stdout when it isn't a TTY, hiding its log.

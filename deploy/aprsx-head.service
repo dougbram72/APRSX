@@ -1,0 +1,21 @@
+# APRS-X touch-screen head unit, on the system python3 with Debian's PySide6.
+# install.sh fills in @APP_DIR@ and writes ~/.config/aprsx/head.env, which picks
+# the Qt platform: Wayland under the desktop image's labwc session, or eglfs
+# straight on the display (Lite image). HEAD_ARGS there adds command-line options.
+[Unit]
+Description=APRS-X head unit
+Wants=aprsx-core.service
+After=aprsx-core.service
+
+[Service]
+Environment=PYTHONPATH=@APP_DIR@ HEAD_ARGS=
+EnvironmentFile=-%h/.config/aprsx/head.env
+# Under a desktop session, wait for the compositor (it starts after autologin).
+ExecStartPre=/bin/sh -c 'if [ -n "$WAYLAND_DISPLAY" ]; then while [ ! -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]; do sleep 1; done; fi'
+TimeoutStartSec=infinity
+ExecStart=/usr/bin/python3 -m aprsx.head --fullscreen $HEAD_ARGS
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
