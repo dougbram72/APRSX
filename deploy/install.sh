@@ -83,7 +83,8 @@ fi
 # The core runs in its own venv; the head unit uses the system python3 (PySide6).
 [ -x .venv/bin/python ] || python3 -m venv .venv
 .venv/bin/pip install -q --upgrade pip
-.venv/bin/pip install -q .
+# The mesh extra is the MeshCore library; it only runs when MeshCore is turned on.
+.venv/bin/pip install -q ".[mesh]"
 # Same version number, new code: reinstall the package itself.
 .venv/bin/pip install -q --force-reinstall --no-deps .
 
@@ -130,6 +131,16 @@ if [ -d /usr/share/wireplumber ]; then
         ~/.config/wireplumber/wireplumber.conf.d/51-disable-digirig.conf
     systemctl --user restart wireplumber 2>/dev/null || true
 fi
+
+# --- power button ------------------------------------------------------------
+# The core (a lingering user service, no login session) shuts the Pi down for the
+# head unit's power button; logind won't allow that without this rule.
+say "Allowing APRS-X to shut down and restart the Pi"
+RULE=$(mktemp)
+echo "$USER ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot" > "$RULE"
+sudo visudo -cqf "$RULE"
+sudo install -m 440 -o root -g root "$RULE" /etc/sudoers.d/aprsx-power
+rm -f "$RULE"
 
 # --- services ---------------------------------------------------------------
 say "Installing systemd user units"

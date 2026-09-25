@@ -36,6 +36,35 @@ class AprsIs(BaseModel):
     is_to_rf: bool = False  # gate IS messages to stations heard directly on RF (transmits)
 
 
+class Wardrive(BaseModel):
+    """MeshCore coverage pings (see wardrive.py). Nothing is sent until a session is started."""
+
+    interval_s: int = Field(30, ge=10)        # at most one ping this often
+    min_distance_m: float = Field(25, ge=0)   # ... and only after moving this far
+    ping_channel: str = "#wardriving"         # channel pings go to; must exist on the device
+    discover_window_s: int = Field(7, ge=1, le=60)
+    echo_window_s: int = Field(5, ge=1, le=60)
+    advert_interval_s: int = Field(0, ge=0)   # zero-hop self adverts while driving; 0 = off
+
+    @field_validator("advert_interval_s")
+    @classmethod
+    def _check_advert_interval(cls, v: int) -> int:
+        if 0 < v < 60:
+            raise ValueError("at least 60 seconds, or 0 for no adverts")
+        return v
+
+
+class MeshCore(BaseModel):
+    """A MeshCore companion radio (e.g. a Heltec V4) on USB serial."""
+
+    enabled: bool = False
+    device: str = ""   # serial port, ideally a /dev/serial/by-id/ path
+    baud: int = Field(115200, gt=0)
+    name: str = Field("", max_length=31)  # node name for adverts; blank = leave the device's
+    share_position: bool = True  # keep the node's advert position at our GPS fix
+    wardrive: Wardrive = Wardrive()
+
+
 class Config(BaseModel):
     callsign: str = "N0CALL"
     ssid: int = Field(9, ge=0, le=15)
@@ -73,6 +102,7 @@ class Config(BaseModel):
     admin_password_hash: str = ""
     smartbeacon: SmartBeacon = SmartBeacon()
     aprsis: AprsIs = AprsIs()
+    meshcore: MeshCore = MeshCore()
 
     canned_messages: list[str] = ["QSL", "On my way", "73"]
     favorites: list[str] = []

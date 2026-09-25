@@ -67,6 +67,16 @@ function renderHeader(s) {
       : s.gps_connected ? "GPS searching" : "GPS —";
     setPill("#gps", text, s.gps_fix ? "good" : s.gps_connected ? "warn" : "");
   }
+  const mesh = $("#mesh");
+  if (mesh && s.mesh) {
+    const m = s.mesh;
+    mesh.classList.toggle("hidden", !m.enabled);
+    const wd = m.wardrive?.active ? " · driving" : "";
+    setPill("#mesh", m.connected ? `Mesh${wd}` : "Mesh offline", m.connected ? "good" : "bad");
+    mesh.title = m.connected ? (m.name ?? "") : (m.error ?? "");
+    const mu = $("#nav-mesh-unread");
+    if (mu) mu.textContent = m.unread ? String(m.unread) : "";
+  }
   const beacon = $("#beacon");
   if (beacon) {
     beacon.disabled = !s.can_beacon;

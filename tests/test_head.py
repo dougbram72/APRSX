@@ -13,7 +13,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
 
 import uvicorn  # noqa: E402
-from PySide6.QtCore import QEventLoop  # noqa: E402
+from PySide6.QtCore import Q_ARG, QEventLoop, QMetaObject, QObject  # noqa: E402
 from PySide6.QtGui import QGuiApplication  # noqa: E402
 
 from aprsx.core import ax25  # noqa: E402
@@ -109,6 +109,12 @@ def test_client_events_without_network(qapp):
     assert (rx, tx) == ([1], [1])
     c.handle_event("station", {"name": "K1ABC", "last_heard": 1})
     assert c.stations.count == 1
+    powering, toasts = [], []
+    c.powering.connect(powering.append)
+    c.toast.connect(toasts.append)
+    c.handle_event("power", {"action": "shutdown"})
+    c.handle_event("power", {"action": "shutdown", "error": "no sudo"})
+    assert powering == ["shutdown", ""] and toasts == ["Failed: no sudo"]
 
 
 # --- client against a real core -----------------------------------------------
@@ -269,3 +275,106 @@ def test_client_symbols_map(qapp):
     c.handle_event("station", {"name": "N0DIG-2", "last_heard": 4,
                                "symbol_table": "1", "symbol": "#"})
     assert len(changed) == 2  # unchanged symbol doesn't re-notify
+
+
+# --- MeshCore ------------------------------------------------------------------
+
+MESH_STATUS = {"station": ME, "unread": 0, "mesh": {
+    "enabled": True, "connected": True, "name": "KF0KBP mobile", "unread": 1,
+    "wardrive": {"active": False, "pings": 0}}}
+
+
+def test_client_mesh_events(qapp):
+    c = CoreClient("http://127.0.0.1:9")
+    c.handle_event("status", MESH_STATUS)
+    row = {"id": 1, "ts": 1, "direction": "in", "conv": "ch:0", "sender": "Bob", "text": "hi",
+           "state": "received", "read": 0}
+    c.handle_event("mesh_message", row)
+    c.handle_event("mesh_message", {**row, "id": 2, "direction": "out", "state": "pending"})
+    c.handle_event("mesh_ack", {**row, "id": 2, "direction": "out", "state": "acked"})
+    assert c.meshMessages.count == 2 and c.meshMessages.get(0)["state"] == "acked"
+    c.handle_event("wardrive", {"active": True, "pings": 3})
+    assert c.status["mesh"]["wardrive"] == {"active": True, "pings": 3}
+    assert c.status["mesh"]["name"] == "KF0KBP mobile"
+    for i in range(8):
+        c.handle_event("wardrive_obs", {"ts": i, "node": f"{i:02x}", "snr": 1.0, "kind": "echo"})
+    assert len(c.meshAnswers) == 6 and c.meshAnswers[0]["node"] == "07"
+    # A connected mesh fetched the channel list; let that request fail before
+    # the client goes away, or its reply fires into a deleted object.
+    wait_until(lambda: False, timeout=0.3)
+
+
+FRIEND = "1f8d6e4ec294" + "00" * 26
+
+
+def mesh_row(id, ts, conv, direction="in", **fields):
+    return {"id": id, "ts": ts, "direction": direction, "conv": conv, "sender": None,
+            "text": f"m{id}", "state": "received" if direction == "in" else "sent",
+            "attempts": 0, "snr": None, "hops": None, "read": 0, **fields}
+
+
+def test_client_mesh_messages_on_carousel(qapp):
+    c = CoreClient("http://127.0.0.1:9")
+    arrived = []
+    c.messageArrived.connect(arrived.append)
+    c.handle_event("status", MESH_STATUS)
+    c._mesh_channels = [{"idx": 0, "name": "Public"}]
+    c.handle_event("message", msg(1, 10, "aprs"))
+    c.handle_event("mesh_message", mesh_row(1, 20, "dm:1f8d6e4ec294", snr=7.5, hops=0))
+    c.handle_event("mesh_message", mesh_row(2, 30, "ch:0", sender="KFOKBPC2"))
+    c.handle_event("mesh_message", mesh_row(3, 40, "ch:0", "out", sender="KF0KBP-APRSX"))
+    cards = [c.messages.get(i) for i in range(c.messages.count)]
+    assert [(k["kind"], k["id"]) for k in cards] == [
+        ("mesh", 3), ("mesh", 2), ("mesh", 1), ("aprs", 1)]  # by time, across both
+    assert [(k["peer"], k["where"]) for k in cards[:3]] == [
+        ("Public", "Public"), ("KFOKBPC2", "Public"), ("1f8d6e4ec294", "")]
+    assert arrived == [1, 1, 2]  # APRS 1, then mesh 1 and 2: mesh jumps to the front too
+    assert c.status["mesh"]["unread"] == 3
+    c.handle_event("mesh_node", {"pubkey": FRIEND, "name": "KFOKBPC2"})
+    assert c.messages.get(2)["peer"] == "KFOKBPC2" and c.meshNames["1f8d6e4ec294"] == "KFOKBPC2"
+    c.handle_event("mesh_read", {"conv": "ch:0", "unread": 1})
+    assert c.messages.get(1)["read"] == 1 and c.messages.get(2)["read"] == 0
+    assert c.status["mesh"]["unread"] == 1
+    c.handle_event("mesh_ack", mesh_row(3, 40, "ch:0", "out", state="sent", text="edited"))
+    assert c.messages.get(0)["text"] == "edited" and c.messages.count == 4
+    wait_until(lambda: False, timeout=0.3)  # let the channel-list request fail (see above)
+
+
+def test_mesh_sheet_loads_without_warnings(qapp):
+    from aprsx.head.__main__ import load
+
+    warnings: list[str] = []
+    engine, client = load(f"http://127.0.0.1:{free_port()}", keyboard=False, warnings=warnings)
+    window = engine.rootObjects()[0]
+    window.resize(800, 480)
+    client.handle_event("status", MESH_STATUS)
+    client._mesh_channels = [{"idx": 0, "name": "Public"}, {"idx": 1, "name": "#wardriving"}]
+    client.meshChanged.emit()
+    client.handle_event("mesh_message", {"id": 1, "ts": 1, "direction": "in", "conv": "ch:0",
+                                         "sender": "Bob", "text": "hi", "state": "received",
+                                         "read": 0})
+    client.handle_event("wardrive", {"active": True, "pings": 2, "paused": "waiting for a GPS fix"})
+    client.handle_event("wardrive_obs", {"ts": 1, "node": "c3", "node_name": "Hilltop",
+                                         "snr": 6.5, "kind": "discover"})
+    window.show()
+    sheet = window.findChild(QObject, "mesh")
+    sheet.setProperty("visible", True)
+    wait_until(lambda: False, timeout=0.5)
+    compose = window.findChild(QObject, "compose")
+    QMetaObject.invokeMethod(compose, "openForMesh", Q_ARG("QVariant", "ch:0"),
+                             Q_ARG("QVariant", "Public"))
+    wait_until(lambda: False, timeout=0.3)
+    assert compose.property("title") == "Mesh: Public"
+    assert compose.property("maxLength") == 140
+    # Mesh cards on the carousel: a pending DM out, then an unread DM in on top.
+    client._mesh_names = {"1f8d6e4ec294": "KFOKBPC2"}
+    client.handle_event("mesh_message", mesh_row(2, 2, "dm:1f8d6e4ec294", "out",
+                                                 state="pending", attempts=1))
+    client.handle_event("mesh_message", mesh_row(3, 3, "dm:1f8d6e4ec294", snr=7.5, hops=2))
+    wait_until(lambda: False, timeout=0.3)
+    card = window.findChild(QObject, "carousel").property("currentItem")
+    assert card.property("mesh") and card.property("replyName") == "KFOKBPC2"
+    QMetaObject.invokeMethod(card, "markRead")
+    assert client.meshMessages.get(0)["read"] == 1
+    assert warnings == []
+    window.close()

@@ -16,6 +16,9 @@ QtObject {
     readonly property color good: "#3fb950"
     readonly property color bad: "#f85149"
     readonly property color out: "#1f4f82"
+    readonly property color mesh: "#a77bf3"       // MeshCore: tag and card border
+    readonly property color meshPanel: "#221a33"  // received mesh message card
+    readonly property color meshOut: "#3a2566"    // sent mesh message card
 
     readonly property real small: 15 * u
     readonly property real body: 19 * u

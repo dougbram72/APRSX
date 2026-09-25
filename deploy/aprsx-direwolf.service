@@ -9,7 +9,8 @@ ConditionPathExists=%h/.config/aprsx/direwolf.conf
 
 [Service]
 # stdbuf: Direwolf block-buffers stdout when it isn't a TTY, hiding its log.
-ExecStart=/usr/bin/stdbuf -oL /usr/bin/direwolf -t 0 -c %h/.config/aprsx/direwolf.conf
+# -a 30: the receive noise level every 30 s, for the status page (audiomon.py).
+ExecStart=/usr/bin/stdbuf -oL /usr/bin/direwolf -t 0 -a 30 -c %h/.config/aprsx/direwolf.conf
 Restart=on-failure
 RestartSec=5
 

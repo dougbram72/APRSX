@@ -12,7 +12,9 @@
     <nav>
       <a href="./">Live</a>
       <a href="chat.html">Messages <span id="nav-unread" class="badge"></span></a>
+      <a href="mesh.html">Mesh <span id="nav-mesh-unread" class="badge"></span></a>
       <a href="map.html">Map</a>
+      <a href="status.html">Status</a>
       <a href="settings.html" aria-current="page">Settings</a>
     </nav>
     <div class="status">
@@ -20,6 +22,7 @@
       <span id="tnc" class="pill">TNC —</span>
       <span id="is" class="pill hidden">APRS-IS</span>
       <span id="gps" class="pill">GPS —</span>
+      <span id="mesh" class="pill hidden">Mesh</span>
       <button id="beacon" class="small" disabled>Beacon</button>
     </div>
   </header>
@@ -124,6 +127,30 @@
           <label>Filter <input name="aprsis.filter" class="mono"></label>
         </div>
         <p class="hint">Passcode -1 logs in receive-only (no gating or sending). Filter "m/50" means 50 km around this station's position.</p>
+      </fieldset>
+
+      <fieldset class="panel" id="meshcore">
+        <legend>MeshCore</legend>
+        <p id="mesh-state" class="hint"></p>
+        <label class="check"><input name="meshcore.enabled" type="checkbox"> Use a MeshCore companion radio on USB
+          <span class="hint">A LoRa board (e.g. Heltec V4) flashed with the USB-serial companion firmware. Messages and war-driving are on the <a href="mesh.html">Mesh</a> page.</span></label>
+        <label class="check"><input name="meshcore.share_position" type="checkbox"> Keep the node's advert position at our GPS fix</label>
+        <div class="grid">
+          <label class="wide">Serial device <input name="meshcore.device" list="mesh-devices" class="mono" placeholder="/dev/serial/by-id/..."></label>
+          <label>Baud rate <input name="meshcore.baud" type="number"></label>
+          <label>Node name <input name="meshcore.name" maxlength="31" placeholder="leave the device's"></label>
+        </div>
+        <datalist id="mesh-devices"></datalist>
+        <h3>War-driving</h3>
+        <div class="grid">
+          <label>Ping at most every (s) <input name="meshcore.wardrive.interval_s" type="number"></label>
+          <label>… after moving (m) <input name="meshcore.wardrive.min_distance_m" type="number" step="any"></label>
+          <label>Ping channel <input name="meshcore.wardrive.ping_channel" class="mono"></label>
+          <label>Advert every (s) <input name="meshcore.wardrive.advert_interval_s" type="number"></label>
+          <label>Discovery window (s) <input name="meshcore.wardrive.discover_window_s" type="number"></label>
+          <label>Echo window (s) <input name="meshcore.wardrive.echo_window_s" type="number"></label>
+        </div>
+        <p class="hint">Pings take turns between a discovery request (repeaters in range answer) and a short message on the ping channel (we listen for repeaters passing it on). The channel must already be set up on the device; without it only discovery requests go out. Adverts: 0 = none. Nothing is sent until you start a session.</p>
       </fieldset>
 
       <fieldset class="panel">

@@ -14,6 +14,9 @@ dependencies = [
 [project.optional-dependencies]
 # Touch-screen head unit (phase 4+)
 head = ["PySide6>=6.5"]
+# MeshCore companion radio over USB (phase 10). Pinned: the core reads the
+# library's event payloads directly (aprsx/core/meshlink.py).
+mesh = ["meshcore==2.3.14"]
 
 [project.scripts]
 aprsx-core = "aprsx.core.__main__:main"

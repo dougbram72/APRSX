@@ -1,3 +1,5 @@
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -84,3 +86,50 @@ def test_symbol_sheets_served(client):
         r = client.get(f"/symbols/aprs-symbols-64-{sheet}.png")
         assert r.status_code == 200
         assert r.headers["content-type"] == "image/png"
+
+
+def test_power_runs_command_after_event(core, client, monkeypatch):
+    from aprsx.core import service
+    monkeypatch.setattr(service, "POWER_DELAY_S", 0)
+    ran = []
+
+    async def fake(command):
+        ran.append(command)
+
+    core.power_command = fake
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()  # initial status
+        r = client.post("/api/system/power", json={"action": "reboot"})
+        assert r.status_code == 202
+        assert ws.receive_json() == {"type": "power", "data": {"action": "reboot"}}
+        close_ws(client, ws)
+    client.post("/api/system/power", json={"action": "shutdown"})
+    for _ in range(100):
+        if len(ran) == 2:
+            break
+        time.sleep(0.01)
+    assert ran == ["reboot", "poweroff"]
+
+
+def test_power_rejects_unknown_action_and_reports_failure(core, client, monkeypatch):
+    from aprsx.core import service
+    monkeypatch.setattr(service, "POWER_DELAY_S", 0)
+
+    async def fail(command):
+        raise RuntimeError("sudo: a password is required")
+
+    core.power_command = fail
+    assert client.post("/api/system/power", json={"action": "halt"}).status_code == 422
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        client.post("/api/system/power", json={"action": "shutdown"})
+        assert ws.receive_json()["data"] == {"action": "shutdown"}
+        assert ws.receive_json()["data"] == {"action": "shutdown",
+                                             "error": "sudo: a password is required"}
+        close_ws(client, ws)
+
+
+def test_power_needs_auth_when_password_set(core, client):
+    from aprsx.core import auth
+    core.config = core.config.model_copy(update={"admin_password_hash": auth.hash_password("pw")})
+    assert client.post("/api/system/power", json={"action": "shutdown"}).status_code == 401

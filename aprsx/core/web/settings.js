@@ -97,6 +97,14 @@ function renderDevices(devices) {
     ptt.push(el("option", { value: `${s.id} DTR` }, `${s.name} (DTR)`));
   }
   $("#ptt-options").replaceChildren(...ptt);
+  $("#mesh-devices").replaceChildren(...devices.serial.map((d) => el("option", { value: d.id }, d.name)));
+}
+
+function renderMesh(status) {
+  const m = status.mesh ?? {};
+  $("#mesh-state").textContent = !m.enabled ? "MeshCore is off."
+    : m.connected ? `Connected to ${m.name ?? "the device"}` + (m.radio?.freq ? ` (${m.radio.freq} MHz, SF${m.radio.sf}, BW ${m.radio.bw}).` : ".")
+    : `Not connected: ${m.error ?? "retrying"}.`;
 }
 
 async function refreshPreviews() {
@@ -230,6 +238,7 @@ async function loadInitial() {
   ]);
   renderHeader(status);
   renderAprsIs(status);
+  renderMesh(status);
   state.config = config;
   fillForm(config);
   renderDevices(devices);
@@ -240,5 +249,5 @@ async function loadInitial() {
 
 loadInitial().catch((e) => console.error("load failed", e));
 connectLive((type, data) => {
-  if (type === "status") { renderHeader(data); renderAprsIs(data); }
+  if (type === "status") { renderHeader(data); renderAprsIs(data); renderMesh(data); }
 }, () => {});
