@@ -55,15 +55,15 @@ the bottom.
 - [x] WP4.5 Resolution-independent layout (800×480 upward)
 - [x] WP4.6 Full-screen on the 5" DSI through eglfs on the Pi; desktop run through xcb
 
-## Phase 5: GPS + beaconing
+## Phase 5: GPS + beaconing ✅
 
-- [ ] **Phase 5 complete**
+- [x] **Phase 5 complete** (SmartBeaconing road test postponed)
 - [x] WP5.1 UART GPS HAT on the 3B+ (`dtoverlay=miniuart-bt`/`disable-bt`, serial console off) + gpsd (u-blox 7 at 9600 baud; `deploy/gpsd.default`)
 - [x] WP5.2 gpsd client in the core; `Core.my_position()` uses the GPS fix, falling back to `fixed_lat/lon`
 - [x] WP5.3 Manual beacon (API + head/web button)
 - [x] WP5.4 SmartBeaconing (speed/turn rates from `Config.smartbeacon`)
 - [x] WP5.5 Tests for SmartBeaconing rate/turn math
-- [ ] WP5.6 On-air check: beacon position seen on aprs.fi
+- [x] WP5.6 On-air check: beacon position seen on aprs.fi
 
 ## Phase 6: Web config + map ✅
 
@@ -199,3 +199,4 @@ Newest first. Note the date, the phase/WP, what was decided, and why.
 - **Course/speed are sent only at or above the SmartBeacon slow speed.** Parked, the u-blox drifted ~2 knots on a random heading (`343/002` on the first test beacon), which would show as a moving arrow. Altitude (`/A=`) is sent with 3D fixes only.
 - **Status carries `gps_connected`, `gps_fix`, `gps` {mode, lat, lon, alt_m, speed_kmh, course, sats}, `can_beacon`, `last_beacon`.** GPS status events go out when the link or fix changes, otherwise at most every 5 s (gpsd reports every second).
 - **Follow-up (phase 8): the Pi has no RTC.** In the vehicle, with no network, the system clock is wrong until something sets it; gpsd has UTC, so wire it to chrony (SHM refclock) when packaging.
+- **Phase 5 closed without a road test of SmartBeaconing** (2026-09-24). WP5.6 passed with a manual beacon seen on aprs.fi; the rate/turn logic is covered by tests only until a drive with automatic beacons on.
