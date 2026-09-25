@@ -92,13 +92,17 @@ async function loadInitial() {
   ]);
   state.units = status.units;
   renderHeader(status);
+  state.config = config;
   showMe(status, config);
   for (const s of stations) upsertStation(s);
   fitAll();
 }
 
 function onEvent(type, data) {
-  if (type === "status") renderHeader(data);
+  if (type === "status") {
+    renderHeader(data);
+    if (state.config) showMe(data, state.config);  // follows the GPS
+  }
   else if (type === "station") upsertStation(data);
 }
 

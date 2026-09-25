@@ -61,6 +61,17 @@ function renderHeader(s) {
     is.classList.toggle("hidden", !s.aprsis_enabled);
     setPill("#is", s.aprsis_verified ? "APRS-IS" : "APRS-IS offline", s.aprsis_verified ? "good" : "bad");
   }
+  const gps = $("#gps");
+  if (gps) {
+    const text = s.gps_fix ? `GPS ${s.gps.mode === 3 ? "3D" : "2D"}` + (s.gps.sats ? ` · ${s.gps.sats} sats` : "")
+      : s.gps_connected ? "GPS searching" : "GPS —";
+    setPill("#gps", text, s.gps_fix ? "good" : s.gps_connected ? "warn" : "");
+  }
+  const beacon = $("#beacon");
+  if (beacon) {
+    beacon.disabled = !s.can_beacon;
+    beacon.title = s.last_beacon ? `Last beacon ${clock(s.last_beacon)}` : "Send a position beacon now";
+  }
   const unread = $("#nav-unread");
   if (unread) unread.textContent = s.unread ? String(s.unread) : "";
 }
@@ -89,3 +100,18 @@ async function getJSON(url) {
   if (!r.ok) throw new Error(`${url}: ${r.status}`);
   return r.json();
 }
+
+// The header's Beacon button (every page has one).
+async function sendBeacon() {
+  const b = $("#beacon");
+  b.disabled = true;
+  const r = await fetch("api/beacon", { method: "POST" }).catch(() => null);
+  const data = r ? await r.json().catch(() => ({})) : {};
+  b.textContent = r?.ok ? "Sent ✓" : "Not sent";
+  if (!r?.ok) b.title = data.detail ?? "Core not reachable";
+  setTimeout(() => { b.textContent = "Beacon"; b.disabled = false; }, 2500);
+}
+document.addEventListener("DOMContentLoaded", () => {
+  const b = $("#beacon");
+  if (b) b.onclick = sendBeacon;
+});

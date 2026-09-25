@@ -19,6 +19,8 @@
       <span id="link" class="pill bad">Connecting…</span>
       <span id="tnc" class="pill">TNC —</span>
       <span id="is" class="pill hidden">APRS-IS</span>
+      <span id="gps" class="pill">GPS —</span>
+      <button id="beacon" class="small" disabled>Beacon</button>
     </div>
   </header>
 
@@ -42,11 +44,12 @@
           <label class="wide">Status text <input name="status_text" maxlength="62"></label>
           <label>Fixed latitude <input name="fixed_lat" type="number" step="any" min="-90" max="90" data-type="optnum" placeholder="none"></label>
           <label>Fixed longitude <input name="fixed_lon" type="number" step="any" min="-180" max="180" data-type="optnum" placeholder="none"></label>
+          <label>Beacon interval (s) <input name="beacon_interval_s" type="number" min="0"></label>
           <label>Units
             <select name="units"><option value="imperial">Imperial (mi)</option><option value="metric">Metric (km)</option></select>
           </label>
         </div>
-        <p class="hint">The fixed position is used until a GPS fix is available (phase 5).</p>
+        <p class="hint">The fixed position is used whenever there is no GPS fix. The beacon interval applies without a GPS fix or with SmartBeaconing off; 0 sends beacons only when you press Beacon.</p>
         <div class="symbol-row">
           <span>Symbol</span>
           <span id="symbol-preview"></span>
@@ -91,7 +94,7 @@
 
       <fieldset class="panel">
         <legend>SmartBeaconing</legend>
-        <p class="hint">Used once GPS beaconing arrives (phase 5).</p>
+        <p class="hint">Beacon rate follows speed and turns while there is a GPS fix. The turn slope is in degrees × mph, as in Direwolf and HamHUD.</p>
         <label class="check"><input name="smartbeacon.enabled" type="checkbox"> Enabled</label>
         <div class="grid">
           <label>Fast speed (km/h) <input name="smartbeacon.fast_speed_kmh" type="number" step="any"></label>

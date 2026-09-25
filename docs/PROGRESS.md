@@ -58,11 +58,11 @@ the bottom.
 ## Phase 5: GPS + beaconing
 
 - [ ] **Phase 5 complete**
-- [ ] WP5.1 UART GPS HAT on the 3B+ (`dtoverlay=miniuart-bt`/`disable-bt`, serial console off) + gpsd
-- [ ] WP5.2 gpsd client in the core; `Core.my_position()` uses the GPS fix, falling back to `fixed_lat/lon`
-- [ ] WP5.3 Manual beacon (API + head/web button)
-- [ ] WP5.4 SmartBeaconing (speed/turn rates from `Config.smartbeacon`)
-- [ ] WP5.5 Tests for SmartBeaconing rate/turn math
+- [x] WP5.1 UART GPS HAT on the 3B+ (`dtoverlay=miniuart-bt`/`disable-bt`, serial console off) + gpsd (u-blox 7 at 9600 baud; `deploy/gpsd.default`)
+- [x] WP5.2 gpsd client in the core; `Core.my_position()` uses the GPS fix, falling back to `fixed_lat/lon`
+- [x] WP5.3 Manual beacon (API + head/web button)
+- [x] WP5.4 SmartBeaconing (speed/turn rates from `Config.smartbeacon`)
+- [x] WP5.5 Tests for SmartBeaconing rate/turn math
 - [ ] WP5.6 On-air check: beacon position seen on aprs.fi
 
 ## Phase 6: Web config + map ✅
@@ -191,3 +191,11 @@ Newest first. Note the date, the phase/WP, what was decided, and why.
 - **Distances** use `Core.my_position()`, which returns `fixed_lat/lon` until GPS lands in phase 5.
 - **Test Pi runs Debian 13 trixie (desktop image), Python 3.13**, not Raspberry Pi OS Lite Bookworm as DESIGN.md assumed. PipeWire/WirePlumber grabs the Digirig on the desktop image, so `deploy/wireplumber-disable-digirig.conf` excludes it. Phase 8 must handle both Lite and desktop images.
 - **Other APRS software removed from the Pi** (Graywolf, YAAC, Java, and dependencies nothing else needed) at the end of the 2026-09-23 session. Graywolf grabbed the Digirig and port 8080. The user's FTM-200 receive-only setup stays. Direwolf is the only APRS package on the Pi.
+- **GPS UART uses `dtoverlay=disable-bt`** (2026-09-24), not `miniuart-bt`: Bluetooth is off and the PL011 (`/dev/ttyAMA0`, `/dev/serial0`) is on GPIO 14/15, with `enable_uart=1` and `console=serial0` removed from cmdline.txt. Originals backed up as `*.pre-gps` in `/boot/firmware/`. The GPS module sends NMEA-0183 at 9600 baud (`$GPRMC/VTG/GGA/GSA/GSV/GLL`, u-blox style). gpsd reads only `/dev/serial0`, with `USBAUTO="false"` so it never probes the Digirig or SCU-66 USB serial ports (`deploy/gpsd.default`).
+- **gpsd is read over its raw JSON protocol** (`gps.GpsdClient`, `?WATCH`), not the `gps` Python package: no extra dependency, and it reconnects like the KISS client. A fix counts as lost after 10 s without a 2D/3D TPV report (`gps.FIX_STALE_S`) and whenever the gpsd link drops.
+- **`beacon_interval_s` setting (default 1800, 0 = manual only)** for timed beacons when there's no GPS fix or SmartBeaconing is off. With neither a fix nor a fixed position, nothing is sent. To stop automatic beacons completely, turn SmartBeaconing off and set the interval to 0.
+- **The first automatic beacon waits 60 s after start** (as Direwolf's default), so the TNC, APRS-IS and gpsd can come up first. A failed automatic beacon is retried after 30 s rather than a full interval. A manual beacon restarts the timers.
+- **SmartBeacon `turn_slope` is in degrees × mph** (HamHUD/Direwolf convention, default 255), while the speeds are in km/h. Corner pegging only applies at or above the slow speed.
+- **Course/speed are sent only at or above the SmartBeacon slow speed.** Parked, the u-blox drifted ~2 knots on a random heading (`343/002` on the first test beacon), which would show as a moving arrow. Altitude (`/A=`) is sent with 3D fixes only.
+- **Status carries `gps_connected`, `gps_fix`, `gps` {mode, lat, lon, alt_m, speed_kmh, course, sats}, `can_beacon`, `last_beacon`.** GPS status events go out when the link or fix changes, otherwise at most every 5 s (gpsd reports every second).
+- **Follow-up (phase 8): the Pi has no RTC.** In the vehicle, with no network, the system clock is wrong until something sets it; gpsd has UTC, so wire it to chrony (SHM refclock) when packaging.
