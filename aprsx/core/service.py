@@ -14,6 +14,7 @@ from .beacon import Scheduler
 from .config import Config
 from .direwolf import ApplyResult, DirewolfManager, needs_restart
 from .events import EventBus
+from .ftm200 import Ftm200Reader
 from .gps import Fix, GpsdClient
 from .kiss import KissTcpClient
 from .mesh import MeshService
@@ -57,8 +58,12 @@ class Core:
             self.config.direwolf_host,
             self.config.direwolf_kiss_port,
             self.handle_frame,
-            on_state=self._kiss_state,
+            on_state=self._radio_state,
         )
+        self.ftm200 = Ftm200Reader(self.config.ftm200.device, self.config.ftm200.baud,
+                                   self.handle_tnc2, on_state=self._radio_state)
+        self._radio_task: asyncio.Task | None = None
+        self._radio_running: str | None = None
         self.messenger = Messenger(self)
         self.aprsis = aprsis.AprsIsClient(self._aprsis_login, self.handle_is_line,
                                           on_state=self._publish_status)
@@ -81,12 +86,15 @@ class Core:
     # --- lifecycle ---------------------------------------------------------
 
     async def start(self) -> None:
-        if self.config.direwolf_managed and self.direwolf and not self.direwolf.conf_path.exists():
-            self.direwolf.write(self.config)  # first boot: the unit needs a config
+        if self.config.direwolf_managed and self.direwolf:
+            if self.config.radio != "direwolf":
+                # The unit starts at boot whatever the backend; it mustn't hold the Digirig.
+                self.direwolf_error = (await self.direwolf.stop()).error
+            elif not self.direwolf.conf_path.exists():
+                self.direwolf.write(self.config)  # first boot: the unit needs a config
         self.beacons.hold(self.clock() + BEACON_STARTUP_DELAY_S)
         self.store.end_open_wd_sessions(self.clock())
         self._tasks = [
-            asyncio.create_task(self.kiss.run(), name="kiss"),
             asyncio.create_task(self._prune_loop(), name="prune"),
             asyncio.create_task(self._message_loop(), name="messages"),
             asyncio.create_task(self.gps.run(), name="gps"),
@@ -94,17 +102,38 @@ class Core:
             asyncio.create_task(self._mesh_loop(), name="mesh"),
             asyncio.create_task(self.audio.run(), name="audio"),
         ]
+        self._sync_radio(start=True)
         self._sync_aprsis()
         self._sync_mesh()
 
     async def stop(self) -> None:
         self.mesh.wardrive.stop()
-        tasks = self._tasks + [t for t in (self._aprsis_task, self._mesh_task) if t]
+        tasks = self._tasks + [t for t in (self._aprsis_task, self._mesh_task, self._radio_task)
+                               if t]
         for t in tasks:
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         self._tasks = []
-        self._aprsis_task = self._mesh_task = None
+        self._aprsis_task = self._mesh_task = self._radio_task = None
+        self._radio_running = None
+
+    @property
+    def radio(self) -> KissTcpClient | Ftm200Reader:
+        """The backend that does the modem: Direwolf over KISS, or the FTM-200."""
+        return self.ftm200 if self.config.radio == "ftm200" else self.kiss
+
+    def _sync_radio(self, start: bool = False) -> None:
+        """Run the selected radio backend's link, and only that one. Until
+        ``start``, there's nothing running to switch (tests without a radio)."""
+        if not start and self._radio_running is None:
+            return
+        want = self.config.radio
+        if self._radio_running == want and self._radio_task and not self._radio_task.done():
+            return
+        if self._radio_task is not None:
+            self._radio_task.cancel()
+        self._radio_task = asyncio.create_task(self.radio.run(), name=f"radio-{want}")
+        self._radio_running = want
 
     def _sync_aprsis(self, restart: bool = False) -> None:
         """Run the APRS-IS client exactly when it's enabled; ``restart`` re-logs in."""
@@ -171,8 +200,18 @@ class Core:
             return fix.lat, fix.lon
         return self.config.fixed_lat, self.config.fixed_lon
 
+    @property
+    def rf_tx(self) -> bool:
+        """Whether the radio backend can transmit at all (the FTM-200 can't)."""
+        return self.radio.can_transmit
+
+    def can_transmit(self) -> bool:
+        """Whether a packet has anywhere to go: the radio, or APRS-IS when logged in."""
+        return self.rf_tx or self.aprsis.verified
+
     def can_beacon(self) -> bool:
-        return self.config.callsign != "N0CALL" and None not in self.my_position()
+        return (self.config.callsign != "N0CALL" and None not in self.my_position()
+                and self.can_transmit())
 
     def gps_status(self) -> dict[str, Any] | None:
         fix = self.gps.current()
@@ -185,7 +224,11 @@ class Core:
         return {
             "station": self.config.station,
             "units": self.config.units,
+            "radio": self.config.radio,
+            "radio_connected": self.radio.connected,
             "kiss_connected": self.kiss.connected,
+            "rf_tx": self.rf_tx,
+            "can_transmit": self.can_transmit(),
             "rx_count": self.rx_count,
             "tx_count": self.tx_count,
             "direwolf_managed": self.config.direwolf_managed,
@@ -216,11 +259,18 @@ class Core:
         self.store.save_config(new)
         self.config = new
         self.kiss.set_address(new.direwolf_host, new.direwolf_kiss_port)
+        self.ftm200.set_device(new.ftm200.device, new.ftm200.baud)
         self.gps.set_address(new.gpsd_host, new.gpsd_port)
         result = None
-        if new.direwolf_managed and self.direwolf and needs_restart(old, new):
-            result = await self.direwolf.apply(new)
-            self.direwolf_error = result.error
+        if new.direwolf_managed and self.direwolf:
+            if new.radio != "direwolf":
+                if old.radio == "direwolf" or not old.direwolf_managed:
+                    result = await self.direwolf.stop()
+                    self.direwolf_error = result.error
+            elif needs_restart(old, new) or old.radio != "direwolf":
+                result = await self.direwolf.apply(new)
+                self.direwolf_error = result.error
+        self._sync_radio()
         login_changed = (old.station, old.aprsis.server, old.aprsis.port, old.aprsis.passcode,
                          old.aprsis.filter, old.fixed_lat, old.fixed_lon) != (
                          new.station, new.aprsis.server, new.aprsis.port, new.aprsis.passcode,
@@ -249,7 +299,7 @@ class Core:
             log.error("power: %s failed: %s", action, e)
             self.bus.publish("power", {"action": action, "error": str(e)})
 
-    def _kiss_state(self, connected: bool) -> None:
+    def _radio_state(self, connected: bool) -> None:
         self._publish_status()
 
     def _publish_status(self) -> None:
@@ -271,7 +321,7 @@ class Core:
     def beacon_tick(self) -> None:
         """Send an automatic beacon if one is due. Called every second."""
         self._gps_update()  # notices a fix going stale without new reports
-        if not self.can_beacon():
+        if not self.can_beacon() or not self.auto_beacon_on():
             return
         now = self.clock()
         fix = self.gps.current()
@@ -282,6 +332,10 @@ class Core:
             due = self.beacons.due_fixed(self.config.beacon_interval_s, now)
         if due and not self.beacon():
             self.beacons.hold(now + BEACON_RETRY_S)
+
+    def auto_beacon_on(self) -> bool:
+        """False with the FTM-200, which beacons itself, unless asked for."""
+        return self.config.radio != "ftm200" or self.config.ftm200.auto_beacon
 
     def beacon(self) -> bool:
         """Send our position now: the GPS fix (with course, speed and altitude
@@ -327,6 +381,16 @@ class Core:
             return
         tnc2 = frame.to_tnc2()
         self.handle_packet(frame, tnc2, ts)
+
+    def handle_tnc2(self, line: str) -> None:
+        """A packet the radio decoded itself, as TNC2 text (the FTM-200 backend)."""
+        ts = self.clock()
+        try:
+            frame = ax25.Frame.from_tnc2(line)
+        except ax25.AX25Error as e:
+            log.debug("unusable packet from the radio (%s): %r", e, line)
+            return
+        self.handle_packet(frame, line, ts)
 
     def handle_packet(self, frame: ax25.Frame, tnc2: str, ts: float) -> None:
         self.rx_count += 1
@@ -407,8 +471,8 @@ class Core:
         """Send one APRS packet from our station, on RF and (when logged in and
         ``to_is``) straight to APRS-IS. True if it went out on either.
 
-        This is the only way the core sends packets, so another radio backend
-        only has to replace the RF half.
+        This is the only way the core sends packets. The RF half goes through the
+        radio backend, and is skipped when it can't transmit (the FTM-200).
         """
         if self.config.callsign == "N0CALL":
             log.warning("not transmitting: callsign is not set")
@@ -420,13 +484,14 @@ class Core:
             info=info.encode("latin-1"),
         )
         sent = False
-        try:
-            self.kiss.write(ax25.encode(frame))
-        except ConnectionError as e:
-            log.warning("not transmitting on RF: %s", e)
-        else:
-            self._log_tx(frame.to_tnc2(), "rf")
-            sent = True
+        if self.rf_tx:
+            try:
+                self.radio.write(ax25.encode(frame))
+            except ConnectionError as e:
+                log.warning("not transmitting on RF: %s", e)
+            else:
+                self._log_tx(frame.to_tnc2(), "rf")
+                sent = True
         if to_is:
             line = f"{self.config.station}>{aprs.TOCALL},TCPIP*:{info}"
             if self.aprsis.send(line):

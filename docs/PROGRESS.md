@@ -5,7 +5,7 @@ into work packages (WPs). Tick a box when the WP is done and verified. Record an
 departure from DESIGN.md, and any choice DESIGN.md left open, in the decision log at
 the bottom.
 
-**Status (2026-09-25):** phases 1–8 done (the fresh-SD-card test passed on Pi OS Lite). Phase 9 (FTM-200D backend) is next. Phase 10 (MeshCore + war-driving) is built and tested against a fake device; the hardware check (WP10.1) and a road test (WP10.9) are still to do.
+**Status (2026-09-25):** phases 1–8 done (the fresh-SD-card test passed on Pi OS Lite). Phase 9 (FTM-200D backend, receive-only) done and running on the Pi. Phase 10 (MeshCore + war-driving) is built and tested against a fake device; the hardware check (WP10.1) and a road test (WP10.9) are still to do.
 
 ---
 
@@ -98,16 +98,17 @@ The FTM-200D has its own APRS modem. Its data port connects to the Pi through a
 Yaesu SCU-66 data-to-USB cable. With this radio, the radio does the modem work and a
 serial bridge in the core stands in for Direwolf.
 
-- [ ] **Phase 9 complete**
-- [ ] WP9.1 Capture and document the FTM-200D data-port output over the SCU-66 (serial settings, line format, which packet types are sent, radio menu settings). Use the user's existing `ftm200_aprs_bridge.py` on the Pi as a reference, but don't change it.
-  - In progress: `docs/FTM200.md` (known format, radio settings, open questions) and the read-only capture tool `tools/ftm200_capture.py` are ready. Waiting on a capture with the SCU-66 plugged in; the radio has never been connected to the test Pi, so there are no earlier captures.
-- [ ] WP9.2 Radio-backend interface in the core, with Direwolf/KISS as one backend. Select the backend in `Config` (e.g. `radio_backend: "direwolf" | "ftm200"`, serial device path).
-- [ ] WP9.3 FTM-200 serial backend: async reader with reconnect on the SCU-66 port (`/dev/serial/by-id/...`)
-- [ ] WP9.4 Parser that turns FTM-200 data-port output into standard TNC2 packets, fed into the same parse → store → publish path as KISS frames
-- [ ] WP9.5 Work out what can be transmitted through the data port. Where the core can't transmit (messages, beacons), report it to the UIs through `status` and disable those controls.
-- [ ] WP9.6 Tests with recorded FTM-200 output (no hardware needed)
-- [ ] WP9.7 Settings page and install support: choose the backend, and don't start Direwolf when the FTM-200 is selected
-- [ ] WP9.8 On-air check: FTM-200D + SCU-66 on the Pi, received stations shown in the web UI and head unit
+- [x] **Phase 9 complete** (2026-09-25)
+- [x] WP9.1 Capture and document the FTM-200D data-port output over the SCU-66 (serial settings, line format, which packet types are sent, radio menu settings). Use the user's existing `ftm200_aprs_bridge.py` on the Pi as a reference, but don't change it.
+  - 2026-09-25: a 50-minute capture on the Pi (`tests/data/ftm200/capture-20260925.raw`, 53 packets) confirmed the format: 9600 8N1, `\r\n`, two lines per packet, TNC2 `*` on the last used hop, info field byte for byte (Mic-E control bytes included), digipeated copies all output. It also showed one info line cut off mid-packet (handled). Radio menus found (66 COM PORT → OUTPUT = PACKET). Messages and the radio's own transmissions were checked on the air afterwards. Optional follow-up: a side-by-side check against Direwolf with both radios on the air (see `docs/FTM200.md`).
+- [x] WP9.2 Radio-backend interface: `Config.radio` (`"direwolf" | "ftm200"`) and `Config.ftm200` (device, baud); `Core.radio` is the active backend (`connected`, `run()`, `write()`, `can_transmit`), and only its link runs
+- [x] WP9.3 FTM-200 serial backend: `ftm200.Ftm200Reader`, an async reader on the SCU-66 port with reconnects (termios, no new dependency)
+- [x] WP9.4 `ftm200.LineParser` turns the data-port lines into TNC2; `Core.handle_tnc2()` feeds them into the same path as KISS frames (`handle_packet()`, so stations, messages and the iGate work unchanged)
+- [x] WP9.5 The data port can't transmit: `rf_tx` is False, `transmit()` skips RF, and status reports `rf_tx`/`can_transmit`. Beacons and messages still go to APRS-IS when logged in; with nowhere to send, the Beacon and Send buttons are disabled (web and head unit)
+- [x] WP9.6 Tests with the recorded output (`tests/test_ftm200.py`: parser, core, backend switching, the reader on a pty, API)
+- [x] WP9.7 Settings page (Radio section: modem choice, FTM-200 device and speed), status page and pills, `install.sh --radio direwolf|ftm200`; the core stops managed Direwolf while the FTM-200 is selected and restarts it when switched back
+- [x] WP9.8 On-air check: FTM-200D + SCU-66 on the Pi, received stations shown in the web UI and head unit
+  - 2026-09-25: the core on the Pi receives through the FTM-200 (Mic-E, positions, digipeated paths stored as RF with distances); a message to the Pi's call showed on the head unit. With the APRS-IS passcode set, replies and acks go out over APRS-IS and were acked by the base station (itself on APRS-IS). The user checked the pills and stations on the web UI and head unit.
 
 ---
 
@@ -132,6 +133,17 @@ and APRS-IS: messages, nodes heard, and war-driving for a coverage map.
 ## Decision log
 
 Newest first. Note the date, the phase/WP, what was decided, and why.
+
+### 2026-09-25: FTM-200D backend (phase 9)
+
+- **The FTM-200D's DATA port only outputs.** The manual lists it as GPS/PACKET/WAYPOINT output, so the backend is receive-only. The radio's own APRS (its callsign, beacons and messaging) is what transmits. The core's beacons and messages go to APRS-IS alone, when logged in, and the UIs disable Beacon and Send when there's nowhere to send. KISS through the radio isn't possible: the jack's packet pins are audio-level, for an external TNC.
+- **A narrow backend interface, not an abstract class.** `KissTcpClient` and `Ftm200Reader` share `connected`, `run()`, `write()` and `can_transmit`; `Core.radio` picks one by `Config.radio`. The FTM-200's lines come in as TNC2 through `Core.handle_tnc2()`, which builds an `ax25.Frame` with `Frame.from_tnc2()` and joins the KISS path at `handle_packet()`, so stations, `heard_direct`, messaging and the iGate need no changes. (The radio shows the `*` only on the last used hop, which `from_tnc2()` already expands to every hop before it.)
+- **The radio's timestamp is dropped.** It's the radio's own clock (an hour behind on the test radio); the Pi's arrival time is used, as with KISS.
+- **termios, not pyserial.** The reader opens the port raw with RTS/DTR low and reads with `loop.add_reader`, so the core gets no new dependency, and tests run it on a pty.
+- **No automatic beacons with the FTM-200 by default** (`ftm200.auto_beacon`, off; asked for by the user). The radio normally beacons itself under its own SSID, so the core's timed and SmartBeaconing beacons would be a second, APRS-IS-only position track. The Beacon button still sends one.
+- **Cut-off lines are dropped by timing.** The capture had one info line end after two bytes with no CR/LF, and the next header came 36 s later on the same line. The radio writes whole lines, so the reader drops a partial line and its packet after 1 s of silence. Guessing where the next header starts would be unreliable (`4PKF0WGF-9` is a valid-looking source).
+- **The port is locked two ways.** `TIOCEXCL` keeps later opens out, and `flock()` (what pyserial takes) keeps the core off a port a capture tool already has. A leftover capture once silently took every byte for 25 minutes.
+- **Direwolf is stopped, not disabled.** The unit stays enabled so switching back is one setting. While the FTM-200 is selected, the core stops the unit at start and when the setting changes, and restarts it when switched back. It doesn't hold the Digirig in the meantime.
 
 ### 2026-09-25: Fresh-SD-card test (WP8.4)
 

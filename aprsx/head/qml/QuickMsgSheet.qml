@@ -68,7 +68,7 @@ Sheet {
                     width: grid.cellW
                     height: 64 * Theme.u
                     text: modelData
-                    enabled: sheet.to !== ""
+                    enabled: sheet.to !== "" && core.status.can_transmit !== false
                     onClicked: {
                         core.sendMessage(sheet.to, modelData)
                         sheet.close()

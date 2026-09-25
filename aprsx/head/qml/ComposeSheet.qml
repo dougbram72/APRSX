@@ -41,7 +41,8 @@ Sheet {
             width: 110 * Theme.u
             text: "Send"
             highlighted: enabled
-            enabled: (!!sheet.meshConv || toField.text.trim() !== "") && textField.text.trim() !== ""
+            enabled: (!!sheet.meshConv || (toField.text.trim() !== "" && core.status.can_transmit !== false))
+                     && textField.text.trim() !== ""
             onClicked: {
                 if (sheet.meshConv) core.sendMesh(sheet.meshConv, textField.text)
                 else core.sendMessage(toField.text, textField.text)

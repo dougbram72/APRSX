@@ -79,8 +79,11 @@ class DirewolfManager:
         tmp.replace(self.conf_path)
 
     async def restart(self) -> None:
+        await self._systemctl("restart")
+
+    async def _systemctl(self, action: str) -> None:
         proc = await asyncio.create_subprocess_exec(
-            "systemctl", "--user", "restart", self.unit,
+            "systemctl", "--user", action, self.unit,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         )
         out, _ = await asyncio.wait_for(proc.communicate(), 30)
@@ -99,5 +102,17 @@ class DirewolfManager:
                          self.conf_path, self.unit)
         except Exception as e:  # report to the settings page rather than failing the save
             log.warning("direwolf apply failed: %s", e)
+            result.error = str(e)
+        return result
+
+    async def stop(self) -> ApplyResult:
+        """Stop Direwolf while another radio backend is selected. The unit stays
+        enabled, so the core stops it again after each boot."""
+        result = ApplyResult()
+        try:
+            await self._systemctl("stop")
+            log.info("%s stopped: the radio backend isn't Direwolf", self.unit)
+        except Exception as e:
+            log.warning("direwolf stop failed: %s", e)
             result.error = str(e)
         return result

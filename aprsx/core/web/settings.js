@@ -31,7 +31,15 @@ function fillForm(config) {
   }
   state.symbol = { table: config.symbol_table, code: config.symbol };
   renderSymbolPicker();
+  renderRadioChoice();
 }
+
+function renderRadioChoice() {
+  const ftm = form.elements.radio.value === "ftm200";
+  $("#radio-ftm200").classList.toggle("hidden", !ftm);
+  $("#radio-direwolf").classList.toggle("hidden", ftm);
+}
+form.elements.radio.onchange = renderRadioChoice;
 
 function readForm() {
   const out = structuredClone(state.config);
@@ -41,6 +49,7 @@ function readForm() {
     else if (f.dataset.type === "csv") v = f.value.split(",").map((s) => s.trim()).filter(Boolean);
     else if (f.dataset.type === "lines") v = f.value.split("\n").map((s) => s.trim()).filter(Boolean);
     else if (f.dataset.type === "optnum") v = f.value === "" ? null : Number(f.value);
+    else if (f.dataset.type === "num") v = Number(f.value);
     else if (f.type === "number") v = f.value === "" ? null : Number(f.value);
     else v = f.value.trim();
     setPath(out, f.name, v);
@@ -98,6 +107,7 @@ function renderDevices(devices) {
   }
   $("#ptt-options").replaceChildren(...ptt);
   $("#mesh-devices").replaceChildren(...devices.serial.map((d) => el("option", { value: d.id }, d.name)));
+  $("#ftm200-devices").replaceChildren(...devices.serial.map((d) => el("option", { value: d.id }, d.name)));
 }
 
 function renderMesh(status) {

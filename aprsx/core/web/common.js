@@ -55,7 +55,9 @@ function setPill(id, text, cls) {
 
 function renderHeader(s) {
   $("#station").textContent = s.station;
-  setPill("#tnc", s.kiss_connected ? "TNC connected" : "TNC offline", s.kiss_connected ? "good" : "bad");
+  const radio = s.radio === "ftm200" ? "FTM-200" : "TNC";
+  setPill("#tnc", s.radio_connected ? (s.rf_tx ? `${radio} connected` : `${radio} RX only`) : `${radio} offline`,
+    s.radio_connected ? "good" : "bad");
   const is = $("#is");
   if (is) {
     is.classList.toggle("hidden", !s.aprsis_enabled);
@@ -81,6 +83,11 @@ function renderHeader(s) {
   if (beacon) {
     beacon.disabled = !s.can_beacon;
     beacon.title = s.last_beacon ? `Last beacon ${clock(s.last_beacon)}` : "Send a position beacon now";
+  }
+  const send = $("#send");
+  if (send) {
+    send.disabled = s.can_transmit === false;
+    send.title = send.disabled ? "Receive-only radio and not logged in to APRS-IS: nothing can transmit" : "";
   }
   const unread = $("#nav-unread");
   if (unread) unread.textContent = s.unread ? String(s.unread) : "";

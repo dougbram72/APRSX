@@ -232,7 +232,11 @@ def create_app(core: Core, run_core: bool = True, tiles_dir: Path | None = None)
             "gps": core.gps.detail(),
             "audio": core.audio.status(),
             "links": {
+                "radio": c.radio,
+                "rf_tx": core.rf_tx,
                 "kiss": core.kiss.connected,
+                "ftm200": {"device": c.ftm200.device, "baud": c.ftm200.baud,
+                           "connected": core.ftm200.connected, "error": core.ftm200.error},
                 "direwolf_managed": c.direwolf_managed,
                 "direwolf_error": core.direwolf_error,
                 "aprsis": {"enabled": c.aprsis.enabled, "connected": core.aprsis.connected,

@@ -10,6 +10,9 @@
 #   --callsign CALL[-SSID]  set the station and let APRS-X manage Direwolf, with PTT
 #                           on the Digirig when one is plugged in. Without it, the
 #                           settings stay as they are (set them in the web UI).
+#   --radio direwolf|ftm200 which modem to use: Direwolf on the Digirig, or a Yaesu
+#                           FTM-200D's own APRS modem through an SCU-66 cable
+#                           (receive only). Without it, the setting stays as it is.
 #   --no-head               no touch-screen head unit (headless / web UI only)
 #   --no-boot               leave /boot/firmware alone (UART GPS setup)
 #   --dir DIR               where to install (default: ~/aprsx)
@@ -23,12 +26,16 @@ REPO=https://github.com/dougbram72/APRSX.git
 APP_DIR=$HOME/aprsx
 BRANCH=main
 CALLSIGN=
+RADIO=
 HEAD=1
 BOOT=1
 
 while [ $# -gt 0 ]; do
     case $1 in
         --callsign) CALLSIGN=${2:?}; shift ;;
+        --radio)
+            RADIO=${2:?}; shift
+            case $RADIO in direwolf|ftm200) ;; *) echo "--radio: direwolf or ftm200" >&2; exit 2 ;; esac ;;
         --no-head) HEAD=0 ;;
         --no-boot) BOOT=0 ;;
         --dir) APP_DIR=${2:?}; shift ;;
@@ -192,6 +199,22 @@ if [ -n "$CALLSIGN" ]; then
         SET+=("ptt=$DIGIRIG RTS")
     else
         echo "No Digirig found; set PTT in the web settings once it's plugged in."
+    fi
+    .venv/bin/aprsx-config "${SET[@]}" >/dev/null
+fi
+
+if [ -n "$RADIO" ]; then
+    say "Radio: $RADIO"
+    SET=("radio=$RADIO")
+    if [ "$RADIO" = ftm200 ]; then
+        # The SCU-66 is a Prolific PL2303 USB serial cable. The core stops
+        # Direwolf while the FTM-200 is selected.
+        SCU=$(ls /dev/serial/by-id/*Prolific* 2>/dev/null | head -n1 || true)
+        if [ -n "$SCU" ]; then
+            SET+=("ftm200.device=$SCU")
+        else
+            echo "No SCU-66 cable found; set its serial device in the web settings once it's plugged in."
+        fi
     fi
     .venv/bin/aprsx-config "${SET[@]}" >/dev/null
 fi

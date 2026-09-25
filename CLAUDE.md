@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-APRS-X is a mobile APRS appliance for a Raspberry Pi (target: Pi 3B+ with a 5" DSI touch screen; must scale to larger screens and newer Pis). A Digirig soundcard interface connects it to a transceiver. The full design and phased roadmap are in `docs/DESIGN.md`. Phases 1 (foundation), 2 (receive path, stations heard, live web packet log), 3 (messaging, web chat), 4 (touch-screen head unit), 5 (GPS + beaconing), 6 (settings pages, managed Direwolf, map with offline tiles) and 7 (APRS-IS client and iGate) are done. Phase 8 (packaging: systemd units, `deploy/install.sh`, `docs/INSTALL.md`) is done, including a fresh-SD-card test on Pi OS Lite. Phase 10 (MeshCore companion on USB, war-driving) is built but not yet tried with the Heltec. SmartBeaconing hasn't been road-tested yet.
+APRS-X is a mobile APRS appliance for a Raspberry Pi (target: Pi 3B+ with a 5" DSI touch screen; must scale to larger screens and newer Pis). A Digirig soundcard interface connects it to a transceiver. The full design and phased roadmap are in `docs/DESIGN.md`. Phases 1 (foundation), 2 (receive path, stations heard, live web packet log), 3 (messaging, web chat), 4 (touch-screen head unit), 5 (GPS + beaconing), 6 (settings pages, managed Direwolf, map with offline tiles) and 7 (APRS-IS client and iGate) are done. Phase 8 (packaging: systemd units, `deploy/install.sh`, `docs/INSTALL.md`) is done, including a fresh-SD-card test on Pi OS Lite. Phase 9 (Yaesu FTM-200D backend, receive-only) is done. Phase 10 (MeshCore companion on USB, war-driving) is built but not yet tried with the Heltec. SmartBeaconing hasn't been road-tested yet.
 
 Progress is tracked in `docs/PROGRESS.md`. Tick off work packages as they are finished, and add design changes and choices to its decision log.
 
@@ -21,7 +21,7 @@ uv run aprsx-core [--db PATH] [--port N]  # the service; web UI at http://<host>
 uv run aprsx-monitor --host 127.0.0.1 --port 8001     # print packets from Direwolf KISS
 uv run aprsx-head [--url http://host:8080] [--fullscreen] [--no-keyboard]  # head unit (needs --extra head)
 uv run aprsx-config [--db PATH] [KEY=VALUE ...]  # print/set stored settings (core stopped)
-deploy/install.sh [--callsign CALL-SSID] [--no-head] [--no-boot]  # Pi installer, see docs/INSTALL.md
+deploy/install.sh [--callsign CALL-SSID] [--radio direwolf|ftm200] [--no-head] [--no-boot]  # Pi installer, see docs/INSTALL.md
 direwolf -c deploy/direwolf.conf          # software TNC for the Digirig
 ```
 
@@ -38,7 +38,7 @@ GPS HAT ─ /dev/serial0 ─ gpsd:2947 ─────────┤
 - **aprsx-core owns all radio I/O and state.** The touch-screen head unit (`aprsx/head/`) and the web UI (`aprsx/core/web/`) are thin clients of the same local API. Put features in the core, never in a UI.
 - **Direwolf does the modem, PTT and digipeating.** We never touch audio. The fill-in digipeater is a Direwolf `DIGIPEAT` rule, not our code. Beaconing, messaging and iGate logic *are* ours, so the UIs can control them.
 - MeshCore (phase 10) is a third channel, separate from APRS: `meshlink.MeshLink` (the only `meshcore` import, lazy; optional `mesh` extra) → `mesh.MeshService` (`core.mesh`: nodes, DMs with retry, channel messages) and `wardrive.Wardriver` (`core.mesh.wardrive`: coverage pings). Its own tables, `/api/mesh/*` and `/api/wardrive/*`, and `mesh_*`/`wardrive*` events; it never uses `Core.transmit()`. Tests swap in `tests/meshfake.FakeMeshLink` (`core.mesh.link = ...`) and drive `await core.mesh.tick()` / `wardrive.tick(now)` with a fake clock.
-- Phase 9 adds a Yaesu FTM-200D backend: the radio's own APRS modem, read through its data port over an SCU-66 USB cable. It replaces Direwolf in the receive path, so keep radio I/O behind a narrow interface and don't let features assume KISS/Direwolf.
+- Radio backends (`Config.radio`): `"direwolf"` (`kiss.KissTcpClient`) or `"ftm200"` (`ftm200.Ftm200Reader`: a Yaesu FTM-200D's own APRS modem, read through its DATA jack over an SCU-66 USB cable; format in `docs/FTM200.md`). `Core.radio` is the active one (`connected`, `run()`, `write()`, `can_transmit`); only its link runs, and the core stops managed Direwolf while the FTM-200 is selected. The FTM-200 is **receive-only**: `Core.rf_tx` is False and `transmit()` skips RF (APRS-IS still works). The radio beacons itself, so automatic beacons are off with it unless `ftm200.auto_beacon` (`Core.auto_beacon_on()`); the Beacon button still works. Its lines arrive as TNC2 through `Core.handle_tnc2()`. Don't let features assume KISS/Direwolf; tests replace `core.kiss.write` (Direwolf) and drive `handle_tnc2()` (FTM-200).
 - `Core.transmit(info)` is the only way packets go on the air (sync; `KissTcpClient.write()`, logged as `direction='tx'`, refuses as N0CALL). Tests capture TX by replacing `core.kiss.write`.
 - Third-party packets (`}` from an iGate's IS→RF) parse as `format == 'thirdparty'` with the inner packet in `subpacket`; `Core` unwraps inner messages for the messenger.
 - The head unit (`aprsx/head/`) is a thin client: `client.CoreClient` mirrors the core over REST + `/ws` into list models; QML is in `head/qml/` with sizes from the `Theme` singleton. It must not import `aprsx.core`.
@@ -69,7 +69,8 @@ GPS HAT ─ /dev/serial0 ─ gpsd:2947 ─────────┤
 - GPS: a u-blox 7 on the GPIO UART (`/dev/serial0` → `ttyAMA0`, 9600 baud) via `dtoverlay=disable-bt` (Bluetooth is off) with the serial console removed, both done by the installer; originals are `/boot/firmware/*.pre-aprsx`. gpsd is the system service, configured from `deploy/gpsd.default` (`USBAUTO="false"` so it never touches the Digirig or SCU-66). `gpspipe -w` shows its output.
 - The core on the Pi has automatic beacons paused (`smartbeacon.enabled=false`, `beacon_interval_s=0`) until the user turns them on; don't re-enable them without asking, since they transmit.
 - APRS-IS is on but has no passcode yet (`-1`), so it receives only.
-- The user's old FTM-200 receive-only bridge scripts were on the previous SD card and are gone. The FTM-200D + SCU-66 hasn't been connected to this install yet.
+- The user's old FTM-200 receive-only bridge scripts were on the previous SD card and are gone.
+- FTM-200D: the SCU-66 is a Prolific PL2303 on `/dev/serial/by-id/usb-Prolific_Technology_Inc._USB-Serial_Controller_DGAFb113318-if00-port0` (`/dev/ttyUSB0`), 9600 baud, radio menu 66 COM PORT → OUTPUT = PACKET. Since 2026-09-25 the Digirig is unplugged and the FTM-200D is connected instead. `tools/ftm200_capture.py --device ...` records the port (read-only; both it and the core open the port exclusively, so switch the core to Direwolf first). The Pi logs "Undervoltage detected" now and then.
 
 ## Constraints
 

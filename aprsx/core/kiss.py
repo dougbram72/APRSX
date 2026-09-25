@@ -88,6 +88,8 @@ class KissTcpClient:
     Received AX.25 frames are passed to ``on_frame(port, frame)``.
     """
 
+    can_transmit = True
+
     def __init__(
         self,
         host: str,

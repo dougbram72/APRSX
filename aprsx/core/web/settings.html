@@ -67,7 +67,30 @@
       </fieldset>
 
       <fieldset class="panel">
-        <legend>Radio (Direwolf)</legend>
+        <legend>Radio</legend>
+        <div class="grid">
+          <label class="wide">Modem
+            <select name="radio">
+              <option value="direwolf">Direwolf on a sound card (e.g. Digirig): receive and transmit</option>
+              <option value="ftm200">Yaesu FTM-200D's own APRS modem, via SCU-66: receive only</option>
+            </select></label>
+        </div>
+        <div id="radio-ftm200">
+          <p class="hint">On the radio: menu 66 COM PORT → OUTPUT = PACKET, SPEED as below;
+            67 DATA BAND → APRS on the 144.390 band. The data port can't transmit, so beacons and
+            messages go to APRS-IS only (when logged in). Direwolf is stopped while this is selected.</p>
+          <div class="grid">
+            <label class="wide">Serial device <input name="ftm200.device" list="ftm200-devices" class="mono" placeholder="/dev/serial/by-id/usb-Prolific..."></label>
+            <label>Speed
+              <select name="ftm200.baud" data-type="num">
+                <option>4800</option><option>9600</option><option>19200</option><option>38400</option><option>57600</option>
+              </select></label>
+          </div>
+          <datalist id="ftm200-devices"></datalist>
+          <label class="check"><input name="ftm200.auto_beacon" type="checkbox"> Also send automatic beacons from APRS-X
+            <span class="hint">Off: the radio beacons with its own APRS, and APRS-X only sends one when you press Beacon. On: APRS-X also sends its timed or SmartBeaconing beacons, to APRS-IS.</span></label>
+        </div>
+        <div id="radio-direwolf">
         <label class="check"><input name="direwolf_managed" type="checkbox"> APRS-X manages Direwolf
           <span class="hint">Writes direwolf.conf from these settings and restarts Direwolf when they change.</span></label>
         <div class="grid">
@@ -84,6 +107,7 @@
           <summary>direwolf.conf APRS-X generates</summary>
           <pre id="direwolf-conf"></pre>
         </details>
+        </div>
         <p id="direwolf-result" class="hint"></p>
       </fieldset>
 
