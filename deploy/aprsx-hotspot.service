@@ -1,0 +1,14 @@
+# APRS-X Wi-Fi fallback: our own access point when no known network is in range.
+# install.sh installs it as a system unit (controlling NetworkManager needs root).
+[Unit]
+Description=APRS-X Wi-Fi hotspot fallback
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+ExecStart=/usr/local/sbin/aprsx-hotspot
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

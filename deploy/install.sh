@@ -13,6 +13,14 @@
 #   --radio direwolf|ftm200 which modem to use: Direwolf on the Digirig, or a Yaesu
 #                           FTM-200D's own APRS modem through an SCU-66 cable
 #                           (receive only). Without it, the setting stays as it is.
+#   --hotspot-pass PASS     turn on the Wi-Fi fallback hotspot with this WPA2 password
+#                           (8-63 characters): with no known network in range, the Pi
+#                           runs its own access point and the web UI is at
+#                           http://10.42.0.1:8080/. Without it, an existing hotspot
+#                           keeps its settings.
+#   --hotspot-ssid NAME     the hotspot's network name (default APRSX-<callsign>)
+#                           (Both can also be set on the web settings page.)
+#   --no-hotspot            remove the fallback hotspot
 #   --no-head               no touch-screen head unit (headless / web UI only)
 #   --no-boot               leave /boot/firmware alone (UART GPS setup)
 #   --dir DIR               where to install (default: ~/aprsx)
@@ -29,6 +37,9 @@ CALLSIGN=
 RADIO=
 HEAD=1
 BOOT=1
+HOTSPOT_PASS=
+HOTSPOT_SSID=
+HOTSPOT=1
 
 while [ $# -gt 0 ]; do
     case $1 in
@@ -36,6 +47,12 @@ while [ $# -gt 0 ]; do
         --radio)
             RADIO=${2:?}; shift
             case $RADIO in direwolf|ftm200) ;; *) echo "--radio: direwolf or ftm200" >&2; exit 2 ;; esac ;;
+        --hotspot-pass)
+            HOTSPOT_PASS=${2:?}; shift
+            [ ${#HOTSPOT_PASS} -ge 8 ] && [ ${#HOTSPOT_PASS} -le 63 ] ||
+                { echo "--hotspot-pass: 8 to 63 characters" >&2; exit 2; } ;;
+        --hotspot-ssid) HOTSPOT_SSID=${2:?}; shift ;;
+        --no-hotspot) HOTSPOT=0 ;;
         --no-head) HEAD=0 ;;
         --no-boot) BOOT=0 ;;
         --dir) APP_DIR=${2:?}; shift ;;
@@ -217,6 +234,51 @@ if [ -n "$RADIO" ]; then
         fi
     fi
     .venv/bin/aprsx-config "${SET[@]}" >/dev/null
+fi
+
+# --- Wi-Fi -------------------------------------------------------------------
+# deploy/aprsx-wifi makes the NetworkManager changes for the web settings page (known
+# networks, the fallback hotspot), through its own sudoers rule. The hotspot is an NM
+# access point with autoconnect off that only deploy/aprsx-hotspot brings up, when no
+# known network is in range.
+HS=aprsx-hotspot
+if command -v nmcli >/dev/null; then
+    say "Wi-Fi settings and fallback hotspot"
+    sudo install -m 755 deploy/aprsx-wifi /usr/local/sbin/aprsx-wifi
+    sudo install -m 755 deploy/$HS /usr/local/sbin/$HS
+    sudo install -m 644 deploy/$HS.service /etc/systemd/system/$HS.service
+    sudo systemctl daemon-reload
+    RULE=$(mktemp)
+    echo "$USER ALL=(root) NOPASSWD: /usr/local/sbin/aprsx-wifi" > "$RULE"
+    sudo visudo -cqf "$RULE"
+    sudo install -m 440 -o root -g root "$RULE" /etc/sudoers.d/aprsx-wifi
+    rm -f "$RULE"
+
+    HS_SSID=$(nmcli -g 802-11-wireless.ssid con show $HS 2>/dev/null || true)
+    if [ "$HOTSPOT" = 0 ]; then
+        sudo systemctl disable -q --now $HS.service 2>/dev/null || true
+        [ -z "$HS_SSID" ] || sudo nmcli con delete $HS >/dev/null
+        echo "Hotspot removed."
+    elif [ -n "$HS_SSID" ] || [ -n "$HOTSPOT_PASS" ]; then
+        if [ -z "$HOTSPOT_SSID" ]; then
+            HOTSPOT_SSID=$HS_SSID
+        fi
+        if [ -z "$HOTSPOT_SSID" ]; then
+            CALL=$(.venv/bin/aprsx-config | python3 -c 'import json,sys; print(json.load(sys.stdin)["callsign"])')
+            [ "$CALL" != N0CALL ] || CALL=$(hostname)
+            HOTSPOT_SSID=APRSX-$CALL
+        fi
+        # Keep it on or off as it was, unless this run sets it up or changes it.
+        ONOFF=on
+        if [ -n "$HS_SSID" ] && [ -z "$HOTSPOT_PASS" ] && ! systemctl -q is-enabled $HS.service; then
+            ONOFF=off
+        fi
+        printf '%s\n' "$HOTSPOT_PASS" | sudo /usr/local/sbin/aprsx-wifi hotspot-set $ONOFF "$HOTSPOT_SSID"
+        echo "Hotspot '$HOTSPOT_SSID' ($ONOFF): when no known network is in range,"
+        echo "join it and open http://10.42.0.1:8080/"
+    else
+        echo "No fallback hotspot (turn it on in the web settings, or --hotspot-pass PASS)."
+    fi
 fi
 
 UNITS=(aprsx-direwolf.service aprsx-core.service)

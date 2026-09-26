@@ -1,11 +1,12 @@
 import QtQuick
 
-// Top strip: station, link/TNC state, RX/TX lights, GPS, APRS-IS, MeshCore, clock, unread, power.
+// Top strip: station, link/TNC state, RX/TX lights, Wi-Fi, GPS, APRS-IS, MeshCore, clock, unread, power.
 Rectangle {
     id: strip
     color: Theme.panel
     signal powerRequested()
     signal meshRequested()
+    signal wifiRequested(string text)
 
     function flash(light) { light.opacity = 1; light.fade.restart() }
 
@@ -89,6 +90,27 @@ Rectangle {
         anchors.verticalCenter: parent.verticalCenter
         spacing: Theme.gap
 
+        // Wi-Fi: green on a network, amber while running our own hotspot.
+        // Tap for the network name and the web UI's address.
+        Pill {
+            readonly property var wifi: core.status.wifi || null
+            anchors.verticalCenter: parent.verticalCenter
+            visible: core.connected && !!wifi
+            label: !wifi ? "" : wifi.mode === "hotspot" ? "HOTSPOT"
+                   : wifi.mode === "client" ? "WIFI" : "WIFI –"
+            tone: !wifi ? Theme.muted : wifi.mode === "hotspot" ? Theme.accent
+                  : wifi.mode === "client" ? Theme.good : Theme.muted
+            MouseArea {
+                anchors.fill: parent
+                anchors.margins: -Theme.gap / 2
+                onClicked: {
+                    const w = parent.wifi
+                    strip.wifiRequested(w.mode === "off" ? "No Wi-Fi network"
+                        : (w.mode === "hotspot" ? "Hotspot " : "") + w.ssid
+                          + (w.ip ? "  ·  http://" + w.ip + ":8080" : ""))
+                }
+            }
+        }
         // GPS: green with a fix, amber while gpsd is up but searching.
         Pill {
             anchors.verticalCenter: parent.verticalCenter

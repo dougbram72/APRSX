@@ -122,6 +122,37 @@ war-driving are on the Mesh page (and behind the MESH pill on the head unit). Fo
 war-driving, add a `#wardriving` channel on the device first, or only discovery
 requests go out. The `pi` user needs to be in the `dialout` group to open the port.
 
+## Wi-Fi hotspot (optional)
+
+For the field, where the Pi has no known Wi-Fi network, the Pi can run its own
+access point. Turn it on in the **Wi-Fi** section of the Settings page (network name,
+password, on/off), or with `--hotspot-pass PASS` (8–63 characters) when installing.
+The same section lists the known networks (the Pi joins the highest-priority one in
+range) and adds, changes or forgets them, with a scan to pick from. These changes
+take effect at once; the core makes them through `/usr/local/sbin/aprsx-wifi`, which
+the installer allows it to run as root (`/etc/sudoers.d/aprsx-wifi`).
+
+```bash
+deploy/install.sh --hotspot-pass 'a long password' [--hotspot-ssid APRSX-N0CALL]
+```
+
+- **No known network in range** (90 s after boot, or 30 s after losing one): the Pi
+  starts the hotspot, `APRSX-<callsign>` unless `--hotspot-ssid` says otherwise. Join
+  it from a phone or tablet and open **http://10.42.0.1:8080/**.
+- **Back in range of a known network:** once nothing has been connected to the
+  hotspot for 3 minutes, the Pi drops it, scans, and joins the network. If none is in
+  range, the hotspot comes straight back. The Pi has one Wi-Fi radio and can't scan
+  while it's an access point, so it never does this while a device is connected.
+- The head unit's status strip shows **WIFI** (green) on a network and **HOTSPOT**
+  (amber) on its own access point. Tap it for the network name and the web UI's
+  address.
+
+Known networks are ordinary NetworkManager profiles (also Raspberry Pi Imager's Wi-Fi
+setting, or `sudo nmtui`); a phone's hotspot works the same way. Re-running the
+installer keeps the hotspot's settings; pass the flags to change them, or
+`--no-hotspot` to remove it. The timings are at the top of `deploy/aprsx-hotspot`,
+and `journalctl -u aprsx-hotspot` shows what it did.
+
 ## Boot configuration
 
 ### UART GPS
