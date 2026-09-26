@@ -3,6 +3,8 @@ name = "aprsx"
 version = "0.1.0"
 description = "Raspberry Pi mobile APRS appliance: touch-screen radio head + web UI on top of Direwolf"
 requires-python = ">=3.11"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 dependencies = [
     "aprslib>=0.7.2",
     "fastapi>=0.110",

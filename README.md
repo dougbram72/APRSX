@@ -122,4 +122,11 @@ APRS-X transmits with the experimental tocall `APZAPX` until one is registered.
 - [Leaflet](https://leafletjs.com/) (BSD-2), bundled so the map works offline.
 - Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors.
 
-No license has been chosen for APRS-X itself yet.
+## License
+
+Copyright (C) 2026 Doug, KF0KBP.
+
+APRS-X is free software under the [GNU General Public License v3.0 or later](LICENSE).
+The GPL fits what APRS-X is built on: it uses aprslib (GPL-2.0-or-later), and the head
+unit uses Qt Virtual Keyboard (GPL-3). The bundled APRS symbols and Leaflet keep their
+own licenses (see *Credits*).
