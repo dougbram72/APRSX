@@ -65,6 +65,16 @@ class MeshCore(BaseModel):
     wardrive: Wardrive = Wardrive()
 
 
+class Ftm200(BaseModel):
+    """A Yaesu FTM-200D's own APRS modem, read through its DATA jack (SCU-66)."""
+
+    device: str = ""  # serial port, ideally a /dev/serial/by-id/ path
+    baud: Literal[4800, 9600, 19200, 38400, 57600] = 9600  # radio menu 66 COM PORT → SPEED
+    # The radio normally beacons itself, so the core's automatic beacons (to
+    # APRS-IS, the only way out) stay off unless this is on. Manual ones still go.
+    auto_beacon: bool = False
+
+
 class Config(BaseModel):
     callsign: str = "N0CALL"
     ssid: int = Field(9, ge=0, le=15)
@@ -79,6 +89,11 @@ class Config(BaseModel):
     fixed_lon: float | None = Field(None, ge=-180, le=180)
     # Timed beacons when there's no GPS fix or SmartBeaconing is off; 0 = manual only.
     beacon_interval_s: int = Field(1800, ge=0)
+
+    # Which radio does the modem: Direwolf over KISS (sends and receives), or an
+    # FTM-200D's own APRS modem (receive only, see ftm200.py).
+    radio: Literal["direwolf", "ftm200"] = "direwolf"
+    ftm200: Ftm200 = Ftm200()
 
     direwolf_host: str = "127.0.0.1"
     direwolf_kiss_port: int = 8001

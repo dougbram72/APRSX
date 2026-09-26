@@ -75,8 +75,9 @@ Rectangle {
         Pill {
             anchors.verticalCenter: parent.verticalCenter
             visible: core.connected
-            label: "TNC"
-            tone: core.status.kiss_connected ? Theme.good : Theme.bad
+            // "FTM RX": the FTM-200's data port, which can't transmit.
+            label: core.status.radio === "ftm200" ? "FTM RX" : "TNC"
+            tone: core.status.radio_connected ? Theme.good : Theme.bad
         }
         Light { id: rxLight; anchors.verticalCenter: parent.verticalCenter; label: "RX"; on: Theme.good }
         Light { id: txLight; anchors.verticalCenter: parent.verticalCenter; label: "TX"; on: Theme.bad }

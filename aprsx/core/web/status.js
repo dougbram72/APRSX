@@ -71,9 +71,15 @@ function renderPi(pi) {
 function renderLinks(s) {
   const l = s.links, is = l.aprsis, m = l.mesh;
   kv("#links", [
-    ["TNC (KISS)", l.kiss ? "connected" : "not connected", tone(l.kiss)],
-    ["Direwolf", l.direwolf_error ? `error: ${l.direwolf_error}` : l.direwolf_managed ? "managed by APRS-X" : "not managed",
-      l.direwolf_error ? "bad-text" : ""],
+    ...(l.radio === "ftm200" ? [
+      ["Radio", "FTM-200D data port (receive only)"],
+      ["FTM-200", l.ftm200.connected ? `open: ${l.ftm200.device} at ${l.ftm200.baud}`
+        : `not open: ${l.ftm200.error ?? ""}`, tone(l.ftm200.connected)],
+    ] : [
+      ["TNC (KISS)", l.kiss ? "connected" : "not connected", tone(l.kiss)],
+      ["Direwolf", l.direwolf_error ? `error: ${l.direwolf_error}` : l.direwolf_managed ? "managed by APRS-X" : "not managed",
+        l.direwolf_error ? "bad-text" : ""],
+    ]),
     ["APRS-IS", !is.enabled ? "off" : is.verified ? `logged in (${is.server ?? "?"})` : is.connected ? "connected, receive-only" : "not connected",
       is.enabled ? tone(is.verified) : ""],
     ["MeshCore", !m.enabled ? "off" : m.connected ? `connected: ${m.name ?? ""}` : `not connected: ${m.error ?? ""}`,

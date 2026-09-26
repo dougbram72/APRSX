@@ -18,6 +18,7 @@ Or from a copy of the repository: `./deploy/install.sh --callsign N0CALL-9`.
 | Option | |
 |---|---|
 | `--callsign CALL[-SSID]` | Set the station, and let APRS-X write and run Direwolf's config, with PTT on the Digirig (RTS on its CP2102) when it's plugged in. Leave it out to keep the current settings. |
+| `--radio direwolf\|ftm200` | Which modem to use: Direwolf on the Digirig (the default), or a Yaesu FTM-200D's own APRS modem through an SCU-66 cable, receive only (see *Yaesu FTM-200D instead of the Digirig*). Leave it out to keep the current setting. |
 | `--no-head` | No touch-screen head unit (web UI only). |
 | `--no-boot` | Don't touch `/boot/firmware` (see below). |
 | `--dir DIR` | Install somewhere other than `~/aprsx`. |
@@ -33,13 +34,18 @@ database (`~/.local/share/aprsx/aprsx.db`).
 
 ## What it sets up
 
-- **Packages:** `direwolf`, `gpsd`, `gpsd-clients`, `python3-venv`, `git`, `rsync`, and
+- **Packages:** `direwolf`, `gpsd`, `gpsd-clients`, `python3-venv`, `git`, `rsync`, `alsa-utils`, and
   for the head unit Debian's PySide6/Qt 6 packages (`deploy/head-apt-packages.txt`).
 - **Core:** a venv at `~/aprsx/.venv` with the `aprsx` package installed, with the
   `mesh` extra (the `meshcore` library, for a MeshCore companion radio on USB).
 - **gpsd:** `/etc/default/gpsd` from `deploy/gpsd.default` (GPS on `/dev/serial0`,
   USB auto-probing off so it leaves the Digirig and SCU-66 alone). The original is
   kept as `/etc/default/gpsd.pre-aprsx`.
+- **Digirig audio** (first run, when the Digirig is plugged in): turns off the sound
+  chip's Auto Gain Control and sets Mic Capture Volume to 19, then saves the mixer with
+  `alsactl store` so it survives power cuts. With AGC on, Direwolf sees a receive level
+  of about 200 even with the radio turned down. After that, adjust the level yourself
+  (see *Receive audio level*); re-running the installer leaves it alone.
 - **WirePlumber** (desktop image): a rule so PipeWire leaves the Digirig's sound card
   to Direwolf.
 - **Power button:** `/etc/sudoers.d/aprsx-power` lets the core run `systemctl poweroff`
@@ -69,6 +75,42 @@ sudo journalctl _SYSTEMD_USER_UNIT=aprsx-core.service -f   # when the user journ
 `aprsx-config KEY=VALUE ...` changes settings from the shell (e.g. `ssid=7`,
 `aprsis.enabled=true`). Stop `aprsx-core` first, or the running core will overwrite
 the change on its next save.
+
+## Receive audio level
+
+Direwolf prints `audio level = N` for each packet it decodes; aim for about 50 on
+strong local stations. Set the radio's volume first (about a third to half on a UV-5R
+works well with the installer's level), then fine-tune the Digirig's capture gain:
+
+```bash
+journalctl -f -o cat _SYSTEMD_USER_UNIT=aprsx-direwolf.service | grep "audio level"
+amixer -c Device cset name='Mic Capture Volume' 19   # 0-35, 1 dB per step
+sudo alsactl store                                   # keep it after a power cut
+```
+
+## Yaesu FTM-200D instead of the Digirig
+
+APRS-X can use an FTM-200D's own APRS modem through its rear DATA jack and a Yaesu
+SCU-66 USB cable, instead of Direwolf and a Digirig. The data port only outputs, so
+this is **receive only**: the radio's own APRS does the beaconing and messaging, and
+APRS-X's beacons and messages go to APRS-IS only (when logged in with a passcode).
+
+1. On the radio: **66 COM PORT → OUTPUT = PACKET** (factory default OFF) and SPEED
+   9600; **67 DATA BAND → APRS** on the band tuned to 144.390; **68 DATA SPEED → APRS**
+   1200 bps; APRS modem on. Details in `docs/FTM200.md`.
+2. Plug the SCU-66 into the Pi and choose it: Settings → Radio → *Yaesu FTM-200D*,
+   serial device `/dev/serial/by-id/usb-Prolific_...`, speed 9600. Or re-run the
+   installer with `--radio ftm200`, which finds the cable by itself.
+3. The core stops Direwolf while the FTM-200 is selected. Choosing Direwolf again
+   restarts it.
+4. APRS-X sends no automatic beacons with the FTM-200, since the radio normally
+   beacons itself; the Beacon button still sends one to APRS-IS. Turn on *Also send
+   automatic beacons from APRS-X* in the Radio section to change that.
+
+The status page shows whether the port is open, and the web UI's radio pill reads
+"FTM-200 RX only". `tools/ftm200_capture.py` records the raw port output for
+troubleshooting; switch the core back to Direwolf first, since only one program can
+have the port open.
 
 ## MeshCore radio (optional)
 

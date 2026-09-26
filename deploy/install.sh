@@ -10,6 +10,9 @@
 #   --callsign CALL[-SSID]  set the station and let APRS-X manage Direwolf, with PTT
 #                           on the Digirig when one is plugged in. Without it, the
 #                           settings stay as they are (set them in the web UI).
+#   --radio direwolf|ftm200 which modem to use: Direwolf on the Digirig, or a Yaesu
+#                           FTM-200D's own APRS modem through an SCU-66 cable
+#                           (receive only). Without it, the setting stays as it is.
 #   --no-head               no touch-screen head unit (headless / web UI only)
 #   --no-boot               leave /boot/firmware alone (UART GPS setup)
 #   --dir DIR               where to install (default: ~/aprsx)
@@ -23,12 +26,16 @@ REPO=https://github.com/dougbram72/APRSX.git
 APP_DIR=$HOME/aprsx
 BRANCH=main
 CALLSIGN=
+RADIO=
 HEAD=1
 BOOT=1
 
 while [ $# -gt 0 ]; do
     case $1 in
         --callsign) CALLSIGN=${2:?}; shift ;;
+        --radio)
+            RADIO=${2:?}; shift
+            case $RADIO in direwolf|ftm200) ;; *) echo "--radio: direwolf or ftm200" >&2; exit 2 ;; esac ;;
         --no-head) HEAD=0 ;;
         --no-boot) BOOT=0 ;;
         --dir) APP_DIR=${2:?}; shift ;;
@@ -52,7 +59,7 @@ sudo true  # ask for the password once, up front
 say "Installing packages"
 sudo apt-get update -q
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q \
-    direwolf gpsd gpsd-clients python3-venv git rsync
+    direwolf gpsd gpsd-clients python3-venv git rsync alsa-utils
 
 # --- code -------------------------------------------------------------------
 say "Installing APRS-X in $APP_DIR"
@@ -132,6 +139,22 @@ if [ -d /usr/share/wireplumber ]; then
     systemctl --user restart wireplumber 2>/dev/null || true
 fi
 
+# --- audio: Digirig mixer ----------------------------------------------------
+# Its C-Media chip starts with Auto Gain Control on, which overdrives Direwolf
+# (receive level ~200, target ~50). Set a starting level once and save it, so it
+# survives power cuts; later runs leave levels tuned by hand alone.
+MIXER_DONE=~/.config/aprsx/digirig-mixer-set
+DIGIRIG_CARD=$(grep -B1 'C-Media' /proc/asound/cards 2>/dev/null \
+    | sed -n 's/^ *\([0-9]\{1,\}\) \[.*/\1/p' | head -n1 || true)
+if [ -n "$DIGIRIG_CARD" ] && [ ! -f $MIXER_DONE ]; then
+    say "Digirig audio: AGC off, starting capture level"
+    amixer -q -c "$DIGIRIG_CARD" cset name='Auto Gain Control' off || true
+    amixer -q -c "$DIGIRIG_CARD" cset name='Mic Capture Volume' 19 || true
+    sudo alsactl store
+    mkdir -p ~/.config/aprsx
+    touch $MIXER_DONE
+fi
+
 # --- power button ------------------------------------------------------------
 # The core (a lingering user service, no login session) shuts the Pi down for the
 # head unit's power button; logind won't allow that without this rule.
@@ -176,6 +199,22 @@ if [ -n "$CALLSIGN" ]; then
         SET+=("ptt=$DIGIRIG RTS")
     else
         echo "No Digirig found; set PTT in the web settings once it's plugged in."
+    fi
+    .venv/bin/aprsx-config "${SET[@]}" >/dev/null
+fi
+
+if [ -n "$RADIO" ]; then
+    say "Radio: $RADIO"
+    SET=("radio=$RADIO")
+    if [ "$RADIO" = ftm200 ]; then
+        # The SCU-66 is a Prolific PL2303 USB serial cable. The core stops
+        # Direwolf while the FTM-200 is selected.
+        SCU=$(ls /dev/serial/by-id/*Prolific* 2>/dev/null | head -n1 || true)
+        if [ -n "$SCU" ]; then
+            SET+=("ftm200.device=$SCU")
+        else
+            echo "No SCU-66 cable found; set its serial device in the web settings once it's plugged in."
+        fi
     fi
     .venv/bin/aprsx-config "${SET[@]}" >/dev/null
 fi
