@@ -5,7 +5,7 @@ into work packages (WPs). Tick a box when the WP is done and verified. Record an
 departure from DESIGN.md, and any choice DESIGN.md left open, in the decision log at
 the bottom.
 
-**Status (2026-09-25):** phases 1–8 done (the fresh-SD-card test passed on Pi OS Lite). Phase 9 (FTM-200D backend, receive-only) done and running on the Pi. Phase 10 (MeshCore + war-driving) is built and tested against a fake device; the hardware check (WP10.1) and a road test (WP10.9) are still to do.
+**Status (2026-09-25):** phases 1–8 done (the fresh-SD-card test passed on Pi OS Lite). Phase 9 (FTM-200D backend, receive-only) done and running on the Pi. Phase 10 (MeshCore + war-driving) is built and works on the air with the Heltec (adverts, DMs, channel messages, shown on the web and head unit). Left: an answer to a discovery request from a real node (WP10.1) and a war-driving road test (WP10.9); one drive near the KF0KB-RPT-1 repeater with a session running should cover both.
 
 ---
 
