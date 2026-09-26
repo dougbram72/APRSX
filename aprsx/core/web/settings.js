@@ -150,7 +150,9 @@ function renderPassword(config) {
 
 function setLocked(locked) {
   $("#login").classList.toggle("hidden", !locked);
-  form.querySelectorAll("input, select, textarea, button").forEach((f) => { f.disabled = locked; });
+  for (const f of [form, $("#wifi")]) {
+    f.querySelectorAll("input, select, textarea, button").forEach((i) => { i.disabled = locked; });
+  }
 }
 
 $("#login").onsubmit = async (e) => {
@@ -240,6 +242,107 @@ $("#remove-password").onclick = () => {
   }
 };
 
+// --- Wi-Fi (NetworkManager; changes apply at once, outside the config) ----------
+
+function wifiStateText(w) {
+  if (!w) return "No Wi-Fi information (NetworkManager not running?).";
+  if (w.mode === "hotspot") return `Running the hotspot "${w.ssid}"` + (w.ip ? ` at ${w.ip}.` : ".");
+  if (w.mode === "client") return `Connected to "${w.ssid}"` + (w.ip ? ` as ${w.ip}.` : ".");
+  return "Not connected to any Wi-Fi network.";
+}
+
+function wifiResult(text, ok) {
+  $("#wifi-result").className = ok ? "saved" : "error";
+  $("#wifi-result").textContent = text;
+}
+
+function renderWifi(data) {
+  $("#wifi-state").textContent = data.available ? wifiStateText(data.state)
+    : `Wi-Fi settings aren't available here: ${data.error ?? "no NetworkManager"}.`;
+  $("#wifi-body").classList.toggle("hidden", !data.available);
+  if (!data.available) return;
+  $("#wifi-networks").replaceChildren(...(data.networks.length ? data.networks.map((n) => {
+    const edit = el("button", { type: "button", class: "small" }, "Edit");
+    edit.onclick = () => {
+      $("#wifi-ssid").value = n.ssid;
+      $("#wifi-prio").value = n.priority;
+      $("#wifi-pass").value = "";
+      $("#wifi-pass").focus();
+    };
+    const del = el("button", { type: "button", class: "small secondary" }, "Remove");
+    del.onclick = () => {
+      const warn = n.active ? " The Pi is connected through it now: this page will lose its connection"
+        + (data.hotspot.enabled ? " until you join the hotspot." : ".") : "";
+      if (confirm(`Forget "${n.ssid}"?${warn}`)) {
+        wifiCall(`api/wifi/networks/${encodeURIComponent(n.name)}`, "DELETE", null, `Forgot "${n.ssid}".`);
+      }
+    };
+    return el("tr", {},
+      el("td", {}, n.ssid + (n.active ? " (connected)" : "")),
+      el("td", { class: "num" }, String(n.priority)),
+      el("td", {}, edit, " ", del));
+  }) : [el("tr", {}, el("td", { colspan: 3 }, "None."))]));
+  $("#hs-enabled").checked = data.hotspot.enabled;
+  $("#hs-ssid").value = data.hotspot.ssid || `APRSX-${form.elements.callsign.value || "N0CALL"}`;
+  $("#hs-pass").value = "";
+  $("#hs-pass").placeholder = data.hotspot.configured ? "unchanged" : "8 to 63 characters";
+}
+
+async function wifiCall(url, method, body, message) {
+  wifiResult("Working…", true);
+  const r = await fetch(url, {
+    method, headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await r.json().catch(() => ({}));
+  if (r.status === 401) { setLocked(true); wifiResult("", true); return false; }
+  if (!r.ok) {
+    const d = data.detail;
+    wifiResult(`Not changed: ${Array.isArray(d) ? d.map((e) => e.msg).join("; ") : d ?? r.status}`, false);
+    return false;
+  }
+  renderWifi(data);
+  wifiResult(message, true);
+  return true;
+}
+
+$("#wifi-scan-button").onclick = async () => {
+  wifiResult("Scanning…", true);
+  const r = await fetch("api/wifi/scan");
+  const data = await r.json().catch(() => ({}));
+  if (r.status === 401) { setLocked(true); return; }
+  if (!r.ok) { wifiResult(`Scan failed: ${data.detail ?? r.status}`, false); return; }
+  $("#wifi-scan").replaceChildren(...data.map((n) =>
+    el("option", { value: n.ssid }, `${n.signal}% ${n.security || "open"}`)));
+  wifiResult(data.length ? `${data.length} networks in range: pick one in the name field.`
+    : "No networks found (the Pi can't scan while it runs the hotspot).", true);
+};
+
+$("#wifi-add").onclick = async () => {
+  const ssid = $("#wifi-ssid").value.trim();
+  const password = $("#wifi-pass").value;
+  if (!ssid) { wifiResult("Enter the network name.", false); return; }
+  if (password && (password.length < 8 || password.length > 63)) {
+    wifiResult("Wi-Fi passwords are 8 to 63 characters.", false); return;
+  }
+  if (await wifiCall("api/wifi/networks", "PUT",
+    { ssid, password, priority: Number($("#wifi-prio").value || 0) }, `Saved "${ssid}".`)) {
+    $("#wifi-ssid").value = $("#wifi-pass").value = "";
+  }
+};
+
+$("#hs-save").onclick = () => {
+  const password = $("#hs-pass").value;
+  if (password && (password.length < 8 || password.length > 63)) {
+    wifiResult("The hotspot password must be 8 to 63 characters.", false); return;
+  }
+  const enabled = $("#hs-enabled").checked;
+  wifiCall("api/wifi/hotspot", "PUT", { enabled, ssid: $("#hs-ssid").value.trim(), password },
+    enabled ? "Hotspot on." : "Hotspot off.");
+};
+
+$("#wifi").onsubmit = (e) => e.preventDefault();
+
 // --- load -------------------------------------------------------------------
 
 async function loadInitial() {
@@ -255,9 +358,13 @@ async function loadInitial() {
   renderPassword(config);
   setLocked(session.password_set && !session.authenticated);
   refreshPreviews();
+  renderWifi(await getJSON("api/wifi"));
 }
 
 loadInitial().catch((e) => console.error("load failed", e));
 connectLive((type, data) => {
-  if (type === "status") { renderHeader(data); renderAprsIs(data); renderMesh(data); }
+  if (type === "status") {
+    renderHeader(data); renderAprsIs(data); renderMesh(data);
+    if (!$("#wifi-body").classList.contains("hidden")) $("#wifi-state").textContent = wifiStateText(data.wifi);
+  }
 }, () => {});

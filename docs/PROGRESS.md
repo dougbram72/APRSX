@@ -91,6 +91,7 @@ the bottom.
 - [x] WP8.3 Boot config notes/automation (UART, DSI, eglfs): `docs/INSTALL.md`
 - [x] WP8.4 Fresh-install test on the Pi: Pi OS Lite, one curl command, everything came up after a reboot; eglfs head unit with working touch (2026-09-25)
 - [x] WP8.5 Safe shutdown: ⏻ button on the head unit (Shut down / Restart), `POST /api/system/power`, sudoers rule from the installer. Shut down and restart tested on the Pi (2026-09-24), both clean.
+- [ ] WP8.6 Wi-Fi fallback hotspot: `deploy/aprsx-hotspot` (system unit) runs the `aprsx-hotspot` NM access point when no known network is in range, `install.sh --hotspot-pass/--hotspot-ssid/--no-hotspot`, `netstate.WifiState` in status and a WIFI/HOTSPOT pill on the head unit; Wi-Fi section on the Settings page (known networks: scan, add, priority, forget; hotspot on/off, name, password) through the root helper `deploy/aprsx-wifi`. On the Pi 2026-09-25: fallback test passed (off Xena → hotspot after 90 s; with Xena allowed again and no clients for 3 min → rejoined in about 10 s); Wi-Fi API writes checked against real NM (add, re-prioritise with the password kept, bad password refused, forget, hotspot off/on). Left: check the settings page and the HOTSPOT pill by eye.
 
 ## Phase 9: Yaesu FTM-200D radio backend
 
@@ -133,6 +134,14 @@ and APRS-IS: messages, nodes heard, and war-driving for a coverage map.
 ## Decision log
 
 Newest first. Note the date, the phase/WP, what was decided, and why.
+
+### 2026-09-25: Wi-Fi fallback hotspot (WP8.6)
+
+- **NetworkManager's own access point plus a small root watchdog**, not hostapd/dnsmasq config: Pi OS Lite already manages wlan0 with NM, which does AP mode and DHCP (`ipv4.method shared`, 10.42.0.1) with packages that are already installed. The profile has autoconnect off; only `deploy/aprsx-hotspot` brings it up.
+- **The watchdog is needed because NM stops scanning in AP mode**, so on its own it would never return to a known network. The Pi 3B+ has one radio, so the watchdog drops the AP to scan, and only after 3 minutes without clients, so it never cuts off a tablet in use. It joins known networks itself (in range, highest autoconnect priority first) instead of waiting for NM's autoconnect, which may have given up on a profile after earlier failures.
+- **A system unit, not a user unit**: controlling NM from a lingering user service needs polkit rules; reading does not, so the core's `netstate.WifiState` polls `nmcli` unprivileged every 10 s for the head unit's pill.
+- **The installer never invents a password**: without `--hotspot-pass` (or the settings page) there's no hotspot, and re-runs keep an existing one.
+- **Wi-Fi settings live in NetworkManager, not in `Config`**: NM is the source of truth (and also edited by Imager/nmtui), so the settings page reads it live and changes apply at once instead of on Save. Changes go through one root helper, `aprsx-wifi`, allowed by its own sudoers rule, like the power button: it validates its arguments, only touches Wi-Fi profiles, and takes passwords on stdin so they never show in the process list. Passwords are never read back to the page. Hotspot name/password changes apply the next time it starts, so saving them doesn't cut off a tablet using it.
 
 ### 2026-09-25: FTM-200D backend (phase 9)
 

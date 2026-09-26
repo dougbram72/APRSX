@@ -199,6 +199,43 @@
         <span id="save-result"></span>
       </div>
     </form>
+
+    <form id="wifi" class="panel" autocomplete="off">
+      <h2>Wi-Fi</h2>
+      <p id="wifi-state" class="hint"></p>
+      <p class="hint">These take effect straight away (no Save needed).</p>
+      <div id="wifi-body">
+        <h3>Known networks</h3>
+        <p class="hint">The Pi joins the highest-priority one in range. A phone's hotspot works like any other network.</p>
+        <table>
+          <thead><tr><th>Network</th><th class="num">Priority</th><th></th></tr></thead>
+          <tbody id="wifi-networks"></tbody>
+        </table>
+        <h3>Add or change a network</h3>
+        <div class="grid">
+          <label>Network name (SSID)
+            <span class="inline"><input id="wifi-ssid" list="wifi-scan" maxlength="32">
+            <button type="button" id="wifi-scan-button" class="small">Scan</button></span></label>
+          <label>Password <input id="wifi-pass" type="password" autocomplete="new-password" placeholder="unchanged / open network"></label>
+          <label>Priority <input id="wifi-prio" type="number" min="-999" max="999" value="0"></label>
+        </div>
+        <datalist id="wifi-scan"></datalist>
+        <button type="button" id="wifi-add">Add / update network</button>
+
+        <h3>Fallback hotspot</h3>
+        <p class="hint">With no known network in range, the Pi runs its own access point: join it
+          and open <span class="mono">http://10.42.0.1:8080/</span>. When a known network is back and
+          nothing has been on the hotspot for 3 minutes, the Pi switches to the network.
+          Name and password changes apply the next time the hotspot starts.</p>
+        <label class="check"><input id="hs-enabled" type="checkbox"> Start a hotspot when no known network is in range</label>
+        <div class="grid">
+          <label>Hotspot name (SSID) <input id="hs-ssid" maxlength="32"></label>
+          <label>Hotspot password <input id="hs-pass" type="password" autocomplete="new-password" placeholder="unchanged" minlength="8" maxlength="63"></label>
+        </div>
+        <button type="button" id="hs-save">Save hotspot</button>
+      </div>
+      <p id="wifi-result"></p>
+    </form>
   </main>
 
   <script src="common.js"></script>

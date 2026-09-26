@@ -1,0 +1,108 @@
+#!/bin/bash
+# APRS-X Wi-Fi settings helper: the few NetworkManager changes the web settings page
+# makes, as root. install.sh puts it in /usr/local/sbin with a sudoers rule that
+# lets the APRS-X user run it (and only it) without a password. Passwords come on
+# stdin, never as arguments.
+#
+#   aprsx-wifi scan                           visible networks: SSID:SIGNAL:SECURITY
+#   aprsx-wifi network-set SSID PRIORITY      add or update a known network
+#                                             (stdin: password; empty keeps it, or open)
+#   aprsx-wifi network-delete NAME            forget a known network
+#   aprsx-wifi hotspot-set on|off SSID        set up the fallback hotspot and turn it on/off
+#                                             (stdin: password; empty keeps it)
+set -euo pipefail
+
+HS=aprsx-hotspot
+
+die() { echo "$*" >&2; exit 2; }
+
+check_ssid() {
+    local n
+    n=$(printf '%s' "$1" | wc -c)
+    [ "$n" -ge 1 ] && [ "$n" -le 32 ] || die "SSID: 1 to 32 bytes"
+    [[ "$1" != *[[:cntrl:]]* ]] || die "SSID: no control characters"
+}
+
+check_pass() {
+    [ -z "$1" ] || { [ ${#1} -ge 8 ] && [ ${#1} -le 63 ]; } || die "password: 8 to 63 characters"
+    [[ "$1" != *[[:cntrl:]]* ]] || die "password: no control characters"
+}
+
+read_pass() { local p=; IFS= read -r p || true; printf '%s' "$p"; }
+
+wifi_dev() {
+    local d
+    d=$(nmcli -t -f DEVICE,TYPE dev | awk -F: '$2 == "wifi" {print $1; exit}')
+    echo "${d:-wlan0}"
+}
+
+# The client (not access point) profile for an SSID, if there is one.
+profile_for() {
+    local type name
+    while IFS=: read -r type name; do
+        [ "$type" = 802-11-wireless ] && [ "$name" != "$HS" ] || continue
+        [ "$(nmcli -g 802-11-wireless.mode con show "$name")" != ap ] || continue
+        if [ "$(nmcli -g 802-11-wireless.ssid con show "$name")" = "$1" ]; then
+            echo "$name"
+            return
+        fi
+    done < <(nmcli -t -e no -f TYPE,NAME con show)
+}
+
+cmd=${1:-}
+case $cmd in
+    scan)
+        nmcli -t -f SSID,SIGNAL,SECURITY dev wifi list --rescan yes ifname "$(wifi_dev)"
+        ;;
+    network-set)
+        [ $# -eq 3 ] || die "usage: network-set SSID PRIORITY"
+        ssid=$2 prio=$3
+        check_ssid "$ssid"
+        [[ "$prio" =~ ^-?[0-9]{1,3}$ ]] || die "priority: -999 to 999"
+        pass=$(read_pass)
+        check_pass "$pass"
+        name=$(profile_for "$ssid")
+        if [ -z "$name" ]; then
+            name=$ssid
+            nmcli con add type wifi ifname "$(wifi_dev)" con-name "$name" ssid "$ssid" >/dev/null
+        fi
+        mod=(connection.autoconnect yes connection.autoconnect-priority "$prio")
+        [ -z "$pass" ] || mod+=(wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$pass")
+        nmcli con modify "$name" "${mod[@]}"
+        echo "$name"
+        ;;
+    network-delete)
+        [ $# -eq 2 ] || die "usage: network-delete NAME"
+        [ "$2" != "$HS" ] || die "that's the hotspot"
+        [ "$(nmcli -g connection.type con show "$2")" = 802-11-wireless ] || die "not a Wi-Fi network: $2"
+        nmcli con delete "$2" >/dev/null
+        ;;
+    hotspot-set)
+        [ $# -eq 3 ] || die "usage: hotspot-set on|off SSID"
+        onoff=$2 ssid=$3
+        case $onoff in on|off) ;; *) die "on or off" ;; esac
+        check_ssid "$ssid"
+        pass=$(read_pass)
+        check_pass "$pass"
+        if ! nmcli -t -f NAME con show | grep -qxF "$HS"; then
+            [ -n "$pass" ] || [ "$onoff" = off ] || die "a new hotspot needs a password"
+            nmcli con add type wifi ifname "$(wifi_dev)" con-name "$HS" ssid "$ssid" >/dev/null
+        fi
+        # Autoconnect off: only the aprsx-hotspot service brings it up.
+        mod=(802-11-wireless.ssid "$ssid" 802-11-wireless.mode ap 802-11-wireless.band bg
+             ipv4.method shared ipv6.method disabled connection.autoconnect no)
+        [ -z "$pass" ] || mod+=(wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$pass")
+        nmcli con modify "$HS" "${mod[@]}"
+        if [ "$onoff" = on ]; then
+            [ -n "$(nmcli -s -g 802-11-wireless-security.psk con show "$HS" 2>/dev/null)" ] || die "the hotspot needs a password"
+            systemctl enable -q $HS.service
+            systemctl restart $HS.service
+        else
+            systemctl disable -q --now $HS.service 2>/dev/null || true
+            nmcli con down "$HS" >/dev/null 2>&1 || true
+        fi
+        ;;
+    *)
+        die "usage: aprsx-wifi scan | network-set SSID PRIORITY | network-delete NAME | hotspot-set on|off SSID"
+        ;;
+esac

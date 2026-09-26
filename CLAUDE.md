@@ -21,7 +21,7 @@ uv run aprsx-core [--db PATH] [--port N]  # the service; web UI at http://<host>
 uv run aprsx-monitor --host 127.0.0.1 --port 8001     # print packets from Direwolf KISS
 uv run aprsx-head [--url http://host:8080] [--fullscreen] [--no-keyboard]  # head unit (needs --extra head)
 uv run aprsx-config [--db PATH] [KEY=VALUE ...]  # print/set stored settings (core stopped)
-deploy/install.sh [--callsign CALL-SSID] [--radio direwolf|ftm200] [--no-head] [--no-boot]  # Pi installer, see docs/INSTALL.md
+deploy/install.sh [--callsign CALL-SSID] [--radio direwolf|ftm200] [--hotspot-pass PASS] [--no-head] [--no-boot]  # Pi installer, see docs/INSTALL.md
 direwolf -c deploy/direwolf.conf          # software TNC for the Digirig
 ```
 
@@ -49,6 +49,7 @@ GPS HAT ─ /dev/serial0 ─ gpsd:2947 ─────────┤
 - Stations are keyed by callsign-SSID, or by object/item name for objects. A packet without a position keeps the last known position. `heard_direct` means no digipeater in the path has its H bit set.
 - `Core.my_position()` is the GPS fix (`gps.GpsdClient`, gpsd JSON on :2947) when fresh, else `fixed_lat/lon`. Distances and beacons use it.
 - Beaconing: `Core.beacon_tick()` (every second) asks `beacon.Scheduler` whether a beacon is due (SmartBeaconing with a GPS fix, else `beacon_interval_s`); `Core.beacon()` sends one (`POST /api/beacon`). Tests set `core.gps.fix` directly and drive `beacon_tick()` with the fake clock.
+- Wi-Fi: `netstate.WifiState` (`core.wifi`) polls `nmcli` (read-only) for `status()['wifi']` (`mode` client/hotspot/off, `ssid`, `ip`; None without NetworkManager). The fallback hotspot itself is OS-level: the `aprsx-hotspot` NM profile and the `deploy/aprsx-hotspot` watchdog (system unit), both from `install.sh`. The Settings page's Wi-Fi section (`/api/wifi*`, `netstate.WifiSettings`) changes NM through the root helper `deploy/aprsx-wifi` (`sudo -n`, `/etc/sudoers.d/aprsx-wifi`); tests swap in fake runners (`core.wifi_settings = WifiSettings(run=..., helper=..., systemctl=...)`).
 - Power: `Core.power('shutdown'|'reboot')` (`POST /api/system/power`, the head unit's ⏻ button) publishes a `power` event, then runs `sudo -n systemctl poweroff|reboot` through the `/etc/sudoers.d/aprsx-power` rule from `install.sh`. Tests replace `core.power_command`; never call the real one.
 - aprslib parse results use its own keys, including the misspelled `addresse` for message recipients and `response` = `ack`/`rej`.
 - `TOCALL` is `APZAPX` (experimental APZ range) until we register one.

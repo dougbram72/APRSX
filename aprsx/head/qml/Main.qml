@@ -30,6 +30,7 @@ ApplicationWindow {
         height: 52 * Theme.u
         onPowerRequested: power.open()
         onMeshRequested: mesh.open()
+        onWifiRequested: text => toast.show(text)
     }
 
     // --- message carousel --------------------------------------------------

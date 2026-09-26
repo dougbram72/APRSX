@@ -53,7 +53,7 @@ from fastapi import (Body, Depends, FastAPI, HTTPException, Query, Request, Resp
                      WebSocket, WebSocketDisconnect)
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from . import aprsis, auth, direwolf, wardrive
 from .sysinfo import SysInfo
@@ -92,6 +92,18 @@ class Advert(BaseModel):
 
 class Power(BaseModel):
     action: Literal["shutdown", "reboot"]
+
+
+class WifiNetwork(BaseModel):
+    ssid: str = Field(min_length=1, max_length=32)
+    password: str = ""
+    priority: int = Field(0, ge=-999, le=999)
+
+
+class Hotspot(BaseModel):
+    enabled: bool
+    ssid: str = Field(min_length=1, max_length=32)
+    password: str = ""
 
 
 class Login(BaseModel):
@@ -251,6 +263,48 @@ def create_app(core: Core, run_core: bool = True, tiles_dir: Path | None = None)
     async def power(body: Power):
         core.power(body.action)
         return {"action": body.action}
+
+    # --- Wi-Fi: known networks and the fallback hotspot (NetworkManager) ------------
+
+    async def wifi_change(action) -> dict[str, Any]:
+        try:
+            await action
+        except (RuntimeError, OSError, asyncio.TimeoutError) as e:
+            raise HTTPException(400, str(e) or "failed") from e
+        try:
+            await core.wifi.poll()
+        except OSError:
+            pass
+        return await wifi_settings()
+
+    @app.get("/api/wifi")
+    async def wifi_settings():
+        try:
+            data = await core.wifi_settings.read()
+        except (OSError, FileNotFoundError) as e:
+            return {"available": False, "error": str(e), "state": core.wifi.state}
+        return {"available": True, "state": core.wifi.state, **data}
+
+    @app.get("/api/wifi/scan", dependencies=[Depends(require_auth)])
+    async def wifi_scan():
+        try:
+            return await core.wifi_settings.scan()
+        except (RuntimeError, OSError, asyncio.TimeoutError) as e:
+            raise HTTPException(400, str(e) or "scan failed") from e
+
+    @app.put("/api/wifi/networks", dependencies=[Depends(require_auth)])
+    async def wifi_network_set(body: WifiNetwork):
+        return await wifi_change(core.wifi_settings.set_network(
+            body.ssid, body.password, body.priority))
+
+    @app.delete("/api/wifi/networks/{name}", dependencies=[Depends(require_auth)])
+    async def wifi_network_delete(name: str):
+        return await wifi_change(core.wifi_settings.delete_network(name))
+
+    @app.put("/api/wifi/hotspot", dependencies=[Depends(require_auth)])
+    async def wifi_hotspot(body: Hotspot):
+        return await wifi_change(core.wifi_settings.set_hotspot(
+            body.enabled, body.ssid, body.password))
 
     @app.get("/api/direwolf.conf", response_class=PlainTextResponse)
     def direwolf_conf():

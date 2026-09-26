@@ -1,0 +1,96 @@
+#!/bin/bash
+# APRS-X Wi-Fi fallback: run our own access point when no known network is in range.
+#
+# install.sh puts this in /usr/local/sbin and runs it as the aprsx-hotspot system
+# service. The access point is the NetworkManager profile "aprsx-hotspot" (created
+# by install.sh with autoconnect off, so only this script brings it up); a phone or
+# tablet that joins it reaches the web UI at http://10.42.0.1:8080/.
+#
+# - Not on any network for a while: bring the hotspot up.
+# - Hotspot up with no devices on it for a while: drop it, rescan, and join a known
+#   network if one is in range; otherwise bring the hotspot back. The Pi has one
+#   radio, so it can't look for networks while it's an access point, and it never
+#   drops the hotspot while something is connected to it.
+set -u
+
+CON=aprsx-hotspot
+POLL_S=15          # how often to look
+BOOT_GRACE_S=90    # after starting, time for NetworkManager to join a known network
+LOST_GRACE_S=30    # after losing a network, time for NetworkManager to rejoin it
+IDLE_S=180         # hotspot without clients this long: look for a known network
+JOIN_WAIT_S=30     # per known network, time to connect
+
+log() { echo "$*"; }
+now() { date +%s; }
+
+if ! nmcli -t -f NAME con show | grep -qxF "$CON"; then
+    log "no '$CON' NetworkManager profile; nothing to do (see install.sh --hotspot-pass)"
+    exit 0
+fi
+IFACE=$(nmcli -g connection.interface-name con show "$CON")
+IFACE=${IFACE:-wlan0}
+
+# The connection active on the interface, when it's fully connected.
+active() {
+    local state con
+    state=$(nmcli -g GENERAL.STATE dev show "$IFACE" 2>/dev/null)
+    con=$(nmcli -g GENERAL.CONNECTION dev show "$IFACE" 2>/dev/null)
+    [ "${state%% *}" = 100 ] && echo "$con"
+}
+
+clients() { iw dev "$IFACE" station dump 2>/dev/null | grep -c '^Station'; }
+
+hotspot_up() {
+    log "no known network: starting hotspot '$CON'"
+    nmcli --wait 30 con up "$CON" >/dev/null || log "could not start the hotspot"
+}
+
+# Try the saved Wi-Fi networks in range, highest autoconnect priority first.
+join_known() {
+    local visible type ac prio name ssid
+    sleep 3
+    visible=$(nmcli -t -e no -f SSID dev wifi list --rescan yes ifname "$IFACE" 2>/dev/null)
+    while IFS=: read -r type ac prio name; do
+        [ "$type" = 802-11-wireless ] && [ "$ac" = yes ] && [ "$name" != "$CON" ] || continue
+        ssid=$(nmcli -g 802-11-wireless.ssid con show "$name")
+        grep -qxF -- "$ssid" <<<"$visible" || continue
+        log "trying '$name' ($ssid)"
+        nmcli --wait "$JOIN_WAIT_S" con up "$name" >/dev/null 2>&1 && return 0
+    done < <(nmcli -t -e no -f TYPE,AUTOCONNECT,AUTOCONNECT-PRIORITY,NAME con show |
+             sort -t: -k3,3nr)
+    return 1
+}
+
+grace=$BOOT_GRACE_S
+down_since=$(now)
+idle_since=$(now)
+log "watching $IFACE"
+while true; do
+    con=$(active)
+    if [ "$con" = "$CON" ]; then
+        if [ "$(clients)" -gt 0 ]; then
+            idle_since=$(now)
+        elif [ $(( $(now) - idle_since )) -ge $IDLE_S ]; then
+            log "hotspot idle: looking for a known network"
+            nmcli con down "$CON" >/dev/null 2>&1
+            if join_known; then
+                log "joined '$(active)'"
+                grace=$LOST_GRACE_S
+                down_since=
+            else
+                hotspot_up
+            fi
+            idle_since=$(now)
+        fi
+    elif [ -n "$con" ]; then
+        down_since=
+        grace=$LOST_GRACE_S
+    else
+        down_since=${down_since:-$(now)}
+        if [ $(( $(now) - down_since )) -ge "$grace" ]; then
+            hotspot_up
+            idle_since=$(now)
+        fi
+    fi
+    sleep $POLL_S
+done

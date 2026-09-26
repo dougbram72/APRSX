@@ -18,6 +18,7 @@ from .ftm200 import Ftm200Reader
 from .gps import Fix, GpsdClient
 from .kiss import KissTcpClient
 from .mesh import MeshService
+from .netstate import WifiSettings, WifiState
 from .messaging import Messenger
 from .stations import station_record, with_distance
 from .store import Store
@@ -78,6 +79,8 @@ class Core:
         self.last_beacon: float | None = None
         self.mesh = MeshService(self)
         self.audio = AudioMonitor(clock)
+        self.wifi = WifiState(on_change=self._publish_status)
+        self.wifi_settings = WifiSettings()
         self._mesh_task: asyncio.Task | None = None
         self._tasks: list[asyncio.Task] = []
         self.power_command = run_power_command  # tests replace this
@@ -101,6 +104,7 @@ class Core:
             asyncio.create_task(self._beacon_loop(), name="beacon"),
             asyncio.create_task(self._mesh_loop(), name="mesh"),
             asyncio.create_task(self.audio.run(), name="audio"),
+            asyncio.create_task(self.wifi.run_forever(), name="wifi"),
         ]
         self._sync_radio(start=True)
         self._sync_aprsis()
@@ -247,6 +251,7 @@ class Core:
             "can_beacon": self.can_beacon(),
             "last_beacon": self.last_beacon,
             "mesh": self.mesh.status(),
+            "wifi": self.wifi.state,
         }
 
     def stations(self) -> list[dict[str, Any]]:
